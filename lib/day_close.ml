@@ -126,17 +126,33 @@ let remove_parts target =
     name)
 ;;
 
+let batch_rows = 65_536
+
 (* Streams [source] into [target], [f] turning each chunk of events into rows. [finish]
    yields rows to append once the source is exhausted. *)
 let convert ?compression ~row_group_rows ~schema ~source ~target ~f ~finish () =
   let%bind file = Parquet_file.create ?compression schema ~row_group_rows target in
   let events, tail = Event_log.read_file source in
   let frames = ref 0 in
+  (* Rows are handed to the writer thread in batches: one [In_thread] hop per pipe chunk
+     (often a single event) costs more than the encoding. *)
+  let pending = ref [] in
+  let pending_rows = ref 0 in
+  let hand_over () =
+    let rows = List.concat (List.rev !pending) in
+    pending := [];
+    pending_rows := 0;
+    Parquet_file.add file rows
+  in
   let%bind () =
     Pipe.iter' events ~f:(fun chunk ->
       frames := !frames + Queue.length chunk;
-      Parquet_file.add file (f (Queue.to_list chunk)))
+      let rows = f (Queue.to_list chunk) in
+      pending := rows :: !pending;
+      pending_rows := !pending_rows + List.length rows;
+      if !pending_rows >= batch_rows then hand_over () else return ())
   in
+  let%bind () = hand_over () in
   let%bind () = Parquet_file.add file (finish ()) in
   let rows = Parquet_file.num_rows file in
   let%bind () = Parquet_file.close file in
