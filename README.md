@@ -97,9 +97,10 @@ read, so never regenerate them.
 | `Frame_log` | raw `{ recv_ts; stream_id; payload }` records, writer and readers |
 | `Event_log` | normalized events routed to per-stream daily files |
 | `Candle_agg` | trades to aligned candles (1s..1d), empty intervals carry the close |
-| `Feed` | module type of a market data source: one pipe per stream plus `close` |
+| `Feed` | module type of a market data source: one pipe per stream plus `close`; `Feed.With_gaps` adds a `gaps` pipe |
+| `Gap` | a break in a feed (disconnect, resync, damaged log) with its venue, instrument and stream |
 | `Snapshot_index` | periodic full L2 books in `norm/l2/_snapshots/<date>.bin`, written by `Event_log.Writer ~snapshot_interval` |
-| `Replay_feed` | a `Feed.t` replaying `Event_log` files, paced by `recv_ts` with a speed factor (0 = as fast as possible) |
+| `Replay_feed` | a `Feed.t` replaying `Event_log` files, paced by `recv_ts` with a speed factor (0 = as fast as possible); `of_raw` replays raw minute files through a normalizer |
 | `Store` | paths, day and instrument listing, file selection by date range |
 | `Parquet_kind` | parquet tables (`trades`, `bbo`, `l2`, `funding`, `candles`) and their paths |
 | `Parquet_schemas` | Parquet schemas of the normalized types; `L2_row` flattens book updates |
@@ -114,6 +115,7 @@ read, so never regenerate them.
 | `L2_book` | an L2 book rebuilt from snapshots and deltas |
 | `Event_dump` | one-line rendering of events and books as of a time |
 | `Raw_minute` | market-recorder raw minute files: path parsing, zstd (multi-frame) decoding, `<recv_ts> <frame>` lines |
+| `Raw_reader` | streams the raw minute files of one venue and symbol over a time range, all streams merged by `recv_ts`, empty lines as gaps |
 | `Normalizer` | `Normalizer.S`, the raw-frame-to-events interface a feed library implements |
 | `Rebuild_norm` | rebuilds a day of `norm/` from raw minute files with the given normalizers; `command` for binaries that link them |
 | `Query_log` | ndjson audit log of SQL run through `query` |
@@ -251,15 +253,34 @@ written only by an `Event_log.Writer` created with `~snapshot_interval`
 (e.g. one minute); the entry at `at` holds every L2 update received before
 `at`.
 
+### Reading raw files
+
+`Raw_reader.read ~data_dir ~venue ~symbol ~start ~stop ()` is the one reader of
+the recorder's raw minute files: it yields `Frame { recv_ts; stream; frame }`
+and `Gap { recv_ts; stream }` (an empty line) for every stream of the symbol,
+merged by `recv_ts`, with frames outside `[start, stop)` dropped. Each stream
+holds at most one decompressed minute in memory. `Rebuild_norm` and
+`Replay_feed.of_raw` both read through it. `dune exec bench/raw_reader_bench.exe`
+measures it: 600k lines of 140-byte frames over three streams take 0.9 to 1.2 s
+(0.5 to 0.7 M lines/s) on an M-series laptop; the per-line pipe merge, not
+timestamp parsing, is the bulk of it.
+
+`Replay_feed.of_raw ~normalizer ~data_dir ~symbol ~start ~stop ()` turns those
+frames into a `Feed.With_gaps.t`: each empty line resets the stream's normalizer
+and arrives on `gaps` as a `Disconnect`. `Replay_feed.of_files_with_gaps` does
+the same for event logs, reporting a file that ends in a damaged frame as a
+`Damaged_log` gap. `Feed.With_gaps.of_feed` lifts a plain feed (no gaps).
+
 ### Rebuilding norm/ from raw files
 
 `market-data rebuild-norm -data-dir DIR -out NEW_DIR -date YYYY-MM-DD` reads
 the recorder's `raw/<venue>/<stream>/<symbol>/<YYYY>/<MM>/<DD>/*.ndjson[.zst]`
 files of the day and writes event logs under `NEW_DIR` (which must be new or
 empty, since event logs are appended to). Each `(venue, stream, symbol)` series
-gets a fresh normalizer fed its minutes in order; an empty line calls
-`disconnect`. It prints counts of files, frames, disconnects, events, rejected
-frames (with the first ten errors) and skipped files.
+gets a fresh normalizer fed its minutes in order through `Raw_reader`; an empty
+line calls `disconnect`. It prints counts of files, frames, disconnects, events,
+errors (frames the normalizer rejected and raw lines that do not parse, with the
+first ten) and skipped files.
 
 Market-data has no venue code, so this binary has no normalizers and only
 counts files as skipped. A feed library plugs in by implementing
@@ -349,4 +370,5 @@ caches the built opam switch between runs.
 
 `Feed.S` is implemented as `Live_feed` in `hl-client`, `binance-client` and
 `bybit-client`; `market-recorder` runs them and writes raw and normalized
-files. Rebuilding `norm/` from stored raw frames is not wired up yet.
+files. `Feed.S` has no `gaps` pipe so these keep compiling; a live feed that
+reports resyncs implements `Feed.With_gaps.S` instead.
