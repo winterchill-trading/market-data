@@ -276,6 +276,47 @@ WHERE seq = (SELECT max(seq) FROM l2 WHERE is_snapshot) ORDER BY side, level;
 SELECT token, venue, symbol, avg(mid) FROM token_bbo GROUP BY ALL ORDER BY ALL;
 ```
 
+### Lead-lag between venues
+
+[`queries/lead_lag.sql`](queries/lead_lag.sql) measures, per token and venue
+pair, how long after a mid change on the leader the follower's mid moves the
+same way (matched with `ASOF JOIN` on `recv_ts`, within a 1 s window set at the
+top of the file), and reports the matched share and the median, p25 and p75
+lag:
+
+```
+$ market-data query -dir /data/md -file queries/lead_lag.sql
+```
+
+On the research fixture, where Binance, Bybit and Hyperliquid see each price
+step 5, 45 and 125 ms after it happens, it reports Binance to Bybit 40 ms,
+Bybit to Hyperliquid 80 ms and Binance to Hyperliquid 120 ms, all matched, and
+nothing matched in the other direction. `query -file PATH` reads SQL from a
+file.
+
+### Checking a day close across revisions
+
+`scripts/daycheck-diff.sh A B` day-closes the same `norm/` data (`-data DIR`,
+default the research fixture; `-date`, default 2026-01-01) with two binaries or
+git revisions (each built in a temporary worktree, against the sibling
+checkouts when run inside the workspace) and compares every table by schema
+and rows with DuckDB `EXCEPT ALL`, so row group or compression changes compare
+equal. It prints one line per table and exits 1 on any difference;
+`-compare ROOT_A ROOT_B` compares two existing roots.
+
+```
+$ scripts/daycheck-diff.sh -data test/fixtures/event-log-v1 0ed18b2 HEAD
+trades: identical (3 rows)
+...
+instruments: DIFFERENT (files only in B)
+```
+
+[`test/cram/day-close.t`](test/cram/day-close.t) runs `day-close` on the
+research fixture, a second time (every table up to date), and the diff script
+in both modes. Candles are also checked row for row against a DuckDB
+aggregation of the trades table (`test/test_candles_duckdb.ml`), including the
+empty minutes and an out-of-order trade.
+
 ### Other commands
 
 ```
@@ -370,7 +411,13 @@ recreate the state on `disconnect` by keeping it in a `ref`.
 ### From Python
 
 [`examples/query.py`](examples/query.py) reads the tables with DuckDB and with
-pyarrow (`pip install duckdb pyarrow pandas`; not run in CI). Notes for pandas:
+pyarrow (`pip install duckdb pyarrow pandas`). CI runs
+`scripts/pyarrow-check.sh` (pyarrow 26, pandas 3.0, duckdb 1.5.6): it
+day-closes the fixtures and [`examples/test_query.py`](examples/test_query.py)
+checks every table's Arrow types (`timestamp[ns]`, `decimal128(18, 8)`, all
+columns required) and the dtypes `query.py` returns. `time_bucket` in DuckDB
+returns a microsecond `TIMESTAMP`, so `query.py`'s `minute` column is
+`datetime64[us, UTC]`. Notes for pandas:
 
 - `exch_ts`, `recv_ts`, `open_time` are `TIMESTAMP_NS` without a time zone
   (`isAdjustedToUTC=false`), so they arrive as naive `datetime64[ns]` holding
