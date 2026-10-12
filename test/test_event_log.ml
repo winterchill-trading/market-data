@@ -11,7 +11,7 @@ let print_event e =
 
 let%expect_test "event shape" =
   print_endline [%bin_digest: Event.Stable.V1.t];
-  [%expect {| 4cf56dfbcb69fbab68b38db7a2944d7b |}];
+  [%expect {| 2f7f1bcba79db3ddd1b04d266342a8af |}];
   return ()
 ;;
 

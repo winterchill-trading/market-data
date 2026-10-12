@@ -10,12 +10,20 @@ let%expect_test "venue names round trip" =
     hyperliquid
     binance
     bybit
+    okx
+    coinbase
+    kraken
+    deribit
+    bitget
+    nyse
+    cboe
+    cme
     |}];
   print_s [%sexp (Venue.of_string_opt "BYBIT" : Venue.t option)];
   print_s [%sexp (Venue.of_string_opt "kraken" : Venue.t option)];
   [%expect {|
     (Bybit)
-    ()
+    (Kraken)
     |}]
 ;;
 
