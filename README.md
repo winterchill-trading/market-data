@@ -284,7 +284,7 @@ same way (matched with `ASOF JOIN` on `recv_ts`, within a 1 s window set at the
 top of the file), and reports the matched share and the median, p25 and p75
 lag:
 
-```
+```console
 $ market-data query -dir /data/md -file queries/lead_lag.sql
 ```
 
@@ -304,7 +304,7 @@ and rows with DuckDB `EXCEPT ALL`, so row group or compression changes compare
 equal. It prints one line per table and exits 1 on any difference;
 `-compare ROOT_A ROOT_B` compares two existing roots.
 
-```
+```console
 $ scripts/daycheck-diff.sh -data test/fixtures/event-log-v1 0ed18b2 HEAD
 trades: identical (3 rows)
 ...
