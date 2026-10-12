@@ -219,8 +219,15 @@ let query =
          ~doc:"FORMAT box, csv, json or markdown (default box)"
      and no_log =
        flag "-no-log" no_arg ~doc:" do not append the query to DIR/query-log.ndjson"
-     and sql = anon ("SQL" %: string) in
+     and file = flag "-file" (optional string) ~doc:"PATH read the SQL from a file"
+     and sql = anon (maybe ("SQL" %: string)) in
      fun () ->
+       let%bind sql =
+         match sql, file with
+         | Some sql, None -> return sql
+         | None, Some file -> Reader.file_contents file
+         | None, None | Some _, Some _ -> raise_s [%message "give either SQL or -file"]
+       in
        let%bind () = if no_log then return () else Query_log.append ~dir sql in
        let%map.Deferred.Or_error output = Parquet_views.query ~duckdb ~format ~dir sql in
        print_string output)
