@@ -9,7 +9,7 @@ module Stable : sig
       { venue : Venue.Stable.V1.t
       ; symbol : Symbol.Stable.V1.t
       }
-    [@@deriving bin_io, sexp, compare, equal, hash, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, hash, fields]
   end
 end
 

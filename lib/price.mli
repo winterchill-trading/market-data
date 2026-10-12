@@ -12,5 +12,7 @@ include Binable.S with type t := t
 module Stable : sig
   module V1 : sig
     type nonrec t = t [@@deriving bin_io, sexp, compare, equal, hash]
+
+    include Quickcheckable.S with type t := t
   end
 end

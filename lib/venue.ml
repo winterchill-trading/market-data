@@ -14,7 +14,7 @@ module Stable = struct
       | Nyse
       | Cboe
       | Cme
-    [@@deriving bin_io, sexp, compare, equal, hash, enumerate]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, hash, enumerate]
   end
 end
 

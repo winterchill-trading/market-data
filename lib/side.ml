@@ -5,7 +5,7 @@ module Stable = struct
     type t = Exchange_core.Side.t =
       | Buy
       | Sell
-    [@@deriving bin_io, sexp, compare, equal, hash, enumerate]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, hash, enumerate]
   end
 end
 

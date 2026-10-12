@@ -14,6 +14,18 @@ module Stable = struct
   module V1 = struct
     include Exchange_core.Price
     include Bin
+
+    let quickcheck_generator =
+      Quickcheck.Generator.map
+        (Int.gen_incl (-1_000_000_000_000) 1_000_000_000_000)
+        ~f:of_units
+    ;;
+
+    let quickcheck_observer =
+      Quickcheck.Observer.unmap Int.quickcheck_observer ~f:to_units
+    ;;
+
+    let quickcheck_shrinker = Quickcheck.Shrinker.empty ()
   end
 end
 
