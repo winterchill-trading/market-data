@@ -251,6 +251,7 @@ let () =
     ; "dump", dump
     ; "check", check
     ; "catalog", catalog
+    ; "rebuild-norm", Rebuild_norm.command []
     ]
   |> Command_unix.run
 ;;
