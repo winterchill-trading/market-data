@@ -2,7 +2,9 @@
  (name market_data_test)
  (inline_tests
   (flags
-   (:standard -source-tree-root .)))
+   (:standard -source-tree-root .))
+  (deps
+   (source_tree fixtures)))
  (libraries core async market-data)
  (preprocess
   (pps ppx_jane)))
