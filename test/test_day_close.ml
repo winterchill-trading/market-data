@@ -317,3 +317,31 @@ let%expect_test "parallel jobs write the same tables in the same order" =
     trades,4
     |}]
 ;;
+
+let%expect_test "row_group_rows sets the row groups of every table" =
+  Sample.with_temp_dir (fun dir ->
+    let%bind () = write_log ~dir in
+    let%bind _ = Day_close.run ~row_group_rows:2 ~dir day in
+    let%bind () =
+      query
+        ~dir
+        (sprintf
+           "SELECT regexp_extract(file_name, 'parquet/([a-z0-9]+)/', 1) AS tbl, \
+            count(DISTINCT row_group_id) AS groups, max(row_group_num_rows) AS max_rows \
+            FROM parquet_metadata('%s/binance/BTCUSDT/parquet/*/*.parquet') GROUP BY ALL \
+            ORDER BY ALL"
+           dir)
+    in
+    [%expect
+      {|
+      tbl,groups,max_rows
+      bbo,1,1
+      candles,1,2
+      funding,1,1
+      l2,2,2
+      trades,2,2
+      |}];
+    printf "default: %d\n" Day_close.default_row_group_rows;
+    [%expect {| default: 65536 |}];
+    return ())
+;;
