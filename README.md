@@ -85,7 +85,7 @@ read, so never regenerate them.
 
 | Module | Purpose |
 | --- | --- |
-| `Venue` | `Hyperliquid \| Binance \| Bybit`, stable lowercase names |
+| `Venue` | `Hyperliquid \| Binance \| Bybit \| ...` (eleven venues), stable lowercase names |
 | `Stream` | `Trades \| Bbo \| L2 \| Funding \| Private`, stable names |
 | `Instrument` | venue plus symbol, `binance:BTCUSDT` |
 | `Price`, `Size`, `Side`, `Symbol` | exchange-core types with bin_io added |
@@ -105,7 +105,8 @@ read, so never regenerate them.
 | `Parquet_sink` | live batching writer: row groups handed to a separate job chain, daily files |
 | `Day_close` | rebuilds a day of `parquet/` from `norm/`, skipping tables that are up to date |
 | `Parquet_views` | DuckDB `CREATE VIEW`s over all instruments, derived views and a `duckdb` CLI runner |
-| `Contract_units` | token units per price and per size unit of known listings (`1000PEPEUSDT`, `kPEPE`, OKX swaps) |
+| `Instrument_info` | catalogue per venue and symbol: kind (`Spot \| Perp \| Future \| Option`), base, quote, size unit (`Base \| Quote \| Contracts m`), funding interval, tick, lot; built from [`data/instruments.sexp`](data/instruments.sexp) |
+| `Contract_units` | token units per price and per size unit, derived from the `Instrument_info` catalogue (quote-sized instruments have no row) |
 | `Quality_check` | DuckDB data-quality assertions and the `gaps` view |
 | `Catalog` | per table venues, symbols, first/last day, files and leftover parts |
 | `L2_book` | an L2 book rebuilt from snapshots and deltas |
@@ -221,6 +222,10 @@ non-positive sizes (zero l2 sizes only in snapshots) and crossed bbo
 lists per table the venues, number of symbols, first and last day, file count
 and leftover numbered sink parts. `query` appends `{"time", "user", "sql"}`
 to `<root>/query-log.ndjson` before running (`-no-log` to skip).
+
+`Funding.normalized_8h` scales a rate to an 8 hour interval using the
+instrument's catalogued `funding_interval` (Hyperliquid and Kraken Futures fund
+hourly, the others every 8 hours), so venues compare directly.
 
 `Replay_feed.of_range` replays the files of instruments and a date range and
 fails, naming the range, when there are none.
