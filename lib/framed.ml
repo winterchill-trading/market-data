@@ -17,6 +17,48 @@ end
 
 let header_length = Bin_prot.Utils.size_header_length
 
+module File_header = struct
+  let magic = "MDFRAME1"
+  let digest_length = 32
+  let length = String.length magic + digest_length
+
+  let encode ~digest =
+    if String.length digest <> digest_length
+    then raise_s [%message "Framed.File_header: digest must be 32 hex characters" digest];
+    magic ^ digest
+  ;;
+
+  (* An old file starts with a little-endian frame size; [magic] read that way is far
+     above [max_frame_size], so the two cannot be confused. *)
+  let read reader =
+    match%bind Reader.peek reader ~len:(String.length magic) with
+    | `Eof -> return `Absent
+    | `Ok prefix when not (String.equal prefix magic) -> return `Absent
+    | `Ok _ ->
+      let buf = Bytes.create length in
+      (match%map Reader.really_read reader buf with
+       | `Ok ->
+         `Digest (Bytes.To_string.sub buf ~pos:(String.length magic) ~len:digest_length)
+       | `Eof n -> `Truncated n)
+  ;;
+
+  let mismatch ~path ~expected ~found =
+    raise_s
+      [%message
+        "bin_shape digest mismatch: the file was written with a different record type"
+          (path : string)
+          (expected : string)
+          (found : string)]
+  ;;
+end
+
+let read_digest path =
+  Reader.with_file path ~f:(fun reader ->
+    match%map File_header.read reader with
+    | `Digest d -> Some d
+    | `Absent | `Truncated _ -> None)
+;;
+
 let decode_header bytes =
   let buf = Bigstring.of_bytes bytes in
   Bin_prot.Utils.bin_read_size_header buf ~pos_ref:(ref 0)
@@ -24,7 +66,7 @@ let decode_header bytes =
 
 (* Reads frames until the end of the file, a damaged frame, or [stop ()]. Returns the tail
    and the offset just past the last complete frame. *)
-let scan_frames reader ~decode ~stop ~f =
+let scan_frames ?(start = 0) reader ~decode ~stop ~f =
   let header = Bytes.create header_length in
   let rec loop offset =
     if stop ()
@@ -48,7 +90,19 @@ let scan_frames reader ~decode ~stop ~f =
                let%bind () = f v in
                loop (offset + header_length + size))))
   in
-  loop 0
+  loop start
+;;
+
+(* Skips the optional file header, then scans the frames. *)
+let scan_file ?digest ~path reader ~decode ~stop ~f =
+  match%bind File_header.read reader with
+  | `Truncated n -> return (Tail.Truncated { bytes = n }, 0)
+  | `Absent -> scan_frames reader ~decode ~stop ~f
+  | `Digest found ->
+    (match digest with
+     | Some expected when not (String.equal expected found) ->
+       File_header.mismatch ~path ~expected ~found
+     | _ -> scan_frames ~start:File_header.length reader ~decode ~stop ~f)
 ;;
 
 let decode_with (bin_reader : _ Bin_prot.Type_class.reader) payload ~size =
@@ -63,7 +117,8 @@ let decode_with (bin_reader : _ Bin_prot.Type_class.reader) payload ~size =
 let valid_length path =
   Reader.with_file path ~f:(fun reader ->
     let%map _tail, length =
-      scan_frames
+      scan_file
+        ~path
         reader
         ~decode:(fun _ ~size:_ -> Some ())
         ~stop:(fun () -> false)
@@ -72,13 +127,15 @@ let valid_length path =
     length)
 ;;
 
-let read_file bin_reader path =
+let read_file ?digest bin_reader path =
   let tail = Ivar.create () in
   let pipe =
     Pipe.create_reader ~close_on_exception:true (fun w ->
       let%map t, _ =
         Reader.with_file path ~f:(fun reader ->
-          scan_frames
+          scan_file
+            ?digest
+            ~path
             reader
             ~decode:(decode_with bin_reader)
             ~stop:(fun () -> Pipe.is_closed w)
@@ -89,8 +146,8 @@ let read_file bin_reader path =
   pipe, Ivar.read tail
 ;;
 
-let load_file bin_reader path =
-  let pipe, tail = read_file bin_reader path in
+let load_file ?digest bin_reader path =
+  let pipe, tail = read_file ?digest bin_reader path in
   let%bind values = Pipe.to_list pipe in
   let%map tail in
   values, tail
@@ -101,6 +158,7 @@ module Writer = struct
 
   type 'a t =
     { bin_writer : 'a Bin_prot.Type_class.writer
+    ; digest : string option
     ; path_for_date : Date.t -> string
     ; flush_bytes : int
     ; buffer : Buffer.t
@@ -133,6 +191,29 @@ module Writer = struct
       else return ()
   ;;
 
+  (* Appending to a file of another record type would make it unreadable. A file without a
+     header predates headers and is continued as is. *)
+  let check_header t path =
+    match t.digest with
+    | None -> return ()
+    | Some expected ->
+      (match%bind Sys.file_exists_exn path with
+       | false -> return ()
+       | true ->
+         (match%map read_digest path with
+          | Some found when not (String.equal found expected) ->
+            File_header.mismatch ~path ~expected ~found
+          | _ -> ()))
+  ;;
+
+  let start_file t path w =
+    match t.digest with
+    | None -> return ()
+    | Some digest ->
+      let%map stat = Unix.stat path in
+      if Int64.equal stat.size 0L then W.write w (File_header.encode ~digest)
+  ;;
+
   let file_for t date =
     match t.file with
     | Some (d, w) when Date.equal d date -> return w
@@ -141,7 +222,9 @@ module Writer = struct
       let path = t.path_for_date date in
       let%bind () = Unix.mkdir ~p:() (Filename.dirname path) in
       let%bind () = repair path in
-      let%map w = W.open_file ~append:true path in
+      let%bind () = check_header t path in
+      let%bind w = W.open_file ~append:true path in
+      let%map () = start_file t path w in
       t.file <- Some (date, w);
       t.files <- path :: t.files;
       w
@@ -166,12 +249,17 @@ module Writer = struct
   let create
     ?(flush_interval = Time_ns.Span.of_int_ms 100)
     ?(flush_bytes = 1024 * 1024)
+    ?digest
     bin_writer
     ~path_for_date
     ()
     =
     let t =
+      (match digest with
+       | Some digest -> ignore (File_header.encode ~digest : string)
+       | None -> ());
       { bin_writer
+      ; digest
       ; path_for_date
       ; flush_bytes
       ; buffer = Buffer.create 4096
