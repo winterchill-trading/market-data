@@ -146,3 +146,26 @@ let%expect_test "rebuild a day with an inline normalizer" =
     print_s [%sexp (Result.is_error again : bool)];
     [%expect {| true |}])
 ;;
+
+let%expect_test "lines that do not parse are counted, not fatal" =
+  Sample.with_temp_dir (fun dir ->
+    let day = dir ^/ "raw/binance/trades/BTCUSDT/2026/01/01" in
+    let%bind () = Unix.mkdir ~p:() day in
+    let%bind () =
+      Writer.save
+        (day ^/ "00-00.ndjson")
+        ~contents:"no-timestamp\n2026-01-01T00:00:05.000000Z trade 100 1 a\n"
+    in
+    let%map stats =
+      Rebuild_norm.run
+        ~normalizers:[ (module Toy) ]
+        ~data_dir:dir
+        ~out_dir:(dir ^/ "rebuilt")
+        (Date.of_string "2026-01-01")
+    in
+    print_s
+      [%sexp
+        (Or_error.map stats ~f:(fun s -> s.events, s.frame_errors)
+         : (int * int) Or_error.t)];
+    [%expect {| (Ok (1 1)) |}])
+;;
