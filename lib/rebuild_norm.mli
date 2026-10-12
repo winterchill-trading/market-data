@@ -1,0 +1,39 @@
+(** Rebuilds the normalized event logs of a day from market-recorder raw minute files
+    ({!Raw_minute}), with venue normalizers supplied by the feed libraries
+    ({!Normalizer.S}).
+
+    Each raw [(venue, stream, symbol)] series gets a fresh normalizer, fed its minute
+    files in order; an empty line calls [disconnect]. Events are appended to an
+    {!Event_log.Writer} under [out_dir]. Series of venues without a normalizer are counted
+    and skipped. A series whose normalizer emits events of another stream that a second
+    series also emits would interleave out of [recv_ts] order in that file; recorder
+    series map one to one onto streams, so this does not happen with the venues so far. *)
+
+open! Core
+open! Async
+
+module Stats : sig
+  type t =
+    { files : int (** minute files read *)
+    ; frames : int
+    ; disconnects : int
+    ; events : int (** events written *)
+    ; frame_errors : int (** frames the normalizer rejected *)
+    ; first_errors : Error.t list (** up to 10, for the report *)
+    ; skipped_files : int (** minute files of venues without a normalizer *)
+    ; skipped_venues : Venue.t list
+    }
+  [@@deriving sexp_of]
+end
+
+(** Fails without writing when [out_dir] exists and is not empty: event logs are appended
+    to, so rebuilding over existing files would duplicate events. *)
+val run
+  :  normalizers:Normalizer.t list
+  -> data_dir:string
+  -> out_dir:string
+  -> Date.t
+  -> Stats.t Or_error.t Deferred.t
+
+(** A [rebuild-norm] command over [normalizers], for binaries that link feed libraries. *)
+val command : Normalizer.t list -> Command.t
