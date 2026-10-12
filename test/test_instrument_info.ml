@@ -101,3 +101,32 @@ let%expect_test "parse, defaults, round trip and errors" =
         (size_unit (Contracts 0)) (tick 1) (lot 1)))))
     |}]
 ;;
+
+let%expect_test "units_per_contract rows derive from the catalogue" =
+  List.iter Contract_units.defaults ~f:(fun (u : Contract_units.t) ->
+    printf
+      !"%-26s %-5s %g %g\n"
+      (Instrument.to_string u.instrument)
+      u.token
+      u.units_per_contract
+      u.units_per_price);
+  [%expect
+    {|
+    hyperliquid:BTC            BTC   1 1
+    hyperliquid:ETH            ETH   1 1
+    hyperliquid:kPEPE          PEPE  1000 1000
+    binance:1000PEPEUSDT       PEPE  1000 1000
+    binance:BTCUSDT            BTC   1 1
+    binance:ETHUSDT            ETH   1 1
+    bybit:1000PEPEUSDT         PEPE  1000 1000
+    bybit:BTCUSDT              BTC   1 1
+    bybit:ETHUSDT              ETH   1 1
+    okx:BTC-USDT-SWAP          BTC   0.01 1
+    okx:ETH-USDT-SWAP          ETH   0.1 1
+    coinbase:BTC-USD           BTC   1 1
+    coinbase:ETH-USD           ETH   1 1
+    kraken:BTC/USD             BTC   1 1
+    kraken:PF_XBTUSD           BTC   1 1
+    bitget:BTCUSDT             BTC   1 1
+    |}]
+;;
