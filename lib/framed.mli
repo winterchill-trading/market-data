@@ -48,10 +48,12 @@ end
     closes at the end of the file or at the first damaged frame; [tail] is determined
     then.
 
-    With [digest], raises if the file's header carries a different digest. [buf_len] is
-    the reader's buffer size. *)
+    With [digest], raises if the file's header carries a different digest, unless it is
+    one of [accept] (default none): older digests known to decode with today's reader.
+    [buf_len] is the reader's buffer size. *)
 val read_file
   :  ?digest:string
+  -> ?accept:string list
   -> ?buf_len:int
   -> 'a Bin_prot.Type_class.reader
   -> string
@@ -63,6 +65,7 @@ val valid_length : string -> int Deferred.t
 (** All complete frames of [path], and its tail. *)
 val load_file
   :  ?digest:string
+  -> ?accept:string list
   -> ?buf_len:int
   -> 'a Bin_prot.Type_class.reader
   -> string
@@ -79,7 +82,7 @@ val load_file
     a crash left behind.
 
     With [digest], every new file starts with a {!File_header}, and appending to an
-    existing file whose header names another digest raises. *)
+    existing file whose header names another digest, not listed in [accept], raises. *)
 module Writer : sig
   type 'a t
 
@@ -87,6 +90,7 @@ module Writer : sig
     :  ?flush_interval:Time_ns.Span.t
     -> ?flush_bytes:int
     -> ?digest:string
+    -> ?accept:string list
     -> 'a Bin_prot.Type_class.writer
     -> path_for_date:(Date.t -> string)
     -> unit

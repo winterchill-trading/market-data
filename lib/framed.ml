@@ -42,13 +42,27 @@ module File_header = struct
        | `Eof n -> `Truncated n)
   ;;
 
-  let mismatch ~path ~expected ~found =
-    raise_s
-      [%message
-        "bin_shape digest mismatch: the file was written with a different record type"
-          (path : string)
-          (expected : string)
-          (found : string)]
+  let mismatch ~path ~expected ~accept ~found =
+    match accept with
+    | [] ->
+      raise_s
+        [%message
+          "bin_shape digest mismatch: the file was written with a different record type"
+            (path : string)
+            (expected : string)
+            (found : string)]
+    | _ :: _ ->
+      raise_s
+        [%message
+          "bin_shape digest mismatch: the file was written with a record type not known \
+           to be compatible"
+            (path : string)
+            (found : string)
+            ~accepted:(expected :: accept : string list)]
+  ;;
+
+  let accepts ~expected ~accept found =
+    String.equal expected found || List.mem accept found ~equal:String.equal
   ;;
 end
 
@@ -100,14 +114,14 @@ let scan_frames ?(start = 0) reader ~decode ~stop ~f =
 ;;
 
 (* Skips the optional file header, then scans the frames. *)
-let scan_file ?digest ~path reader ~decode ~stop ~f =
+let scan_file ?digest ?(accept = []) ~path reader ~decode ~stop ~f =
   match%bind File_header.read reader with
   | `Truncated n -> return (Tail.Truncated { bytes = n }, 0)
   | `Absent -> scan_frames reader ~decode ~stop ~f
   | `Digest found ->
     (match digest with
-     | Some expected when not (String.equal expected found) ->
-       File_header.mismatch ~path ~expected ~found
+     | Some expected when not (File_header.accepts ~expected ~accept found) ->
+       File_header.mismatch ~path ~expected ~accept ~found
      | _ -> scan_frames ~start:File_header.length reader ~decode ~stop ~f)
 ;;
 
@@ -132,7 +146,7 @@ let valid_length path =
     length)
 ;;
 
-let read_file ?digest ?buf_len bin_reader path =
+let read_file ?digest ?accept ?buf_len bin_reader path =
   let tail = Ivar.create () in
   let pipe =
     Pipe.create_reader ~close_on_exception:true (fun w ->
@@ -140,6 +154,7 @@ let read_file ?digest ?buf_len bin_reader path =
         Reader.with_file ?buf_len path ~f:(fun reader ->
           scan_file
             ?digest
+            ?accept
             ~path
             reader
             ~decode:(decode_with bin_reader)
@@ -151,8 +166,8 @@ let read_file ?digest ?buf_len bin_reader path =
   pipe, Ivar.read tail
 ;;
 
-let load_file ?digest ?buf_len bin_reader path =
-  let pipe, tail = read_file ?digest ?buf_len bin_reader path in
+let load_file ?digest ?accept ?buf_len bin_reader path =
+  let pipe, tail = read_file ?digest ?accept ?buf_len bin_reader path in
   let%bind values = Pipe.to_list pipe in
   let%map tail in
   values, tail
@@ -164,6 +179,7 @@ module Writer = struct
   type 'a t =
     { bin_writer : 'a Bin_prot.Type_class.writer
     ; digest : string option
+    ; accept : string list
     ; path_for_date : Date.t -> string
     ; flush_bytes : int
     ; buffer : Bigbuffer.t
@@ -207,8 +223,8 @@ module Writer = struct
        | false -> return ()
        | true ->
          (match%map read_digest path with
-          | Some found when not (String.equal found expected) ->
-            File_header.mismatch ~path ~expected ~found
+          | Some found when not (File_header.accepts ~expected ~accept:t.accept found) ->
+            File_header.mismatch ~path ~expected ~accept:t.accept ~found
           | _ -> ()))
   ;;
 
@@ -256,6 +272,7 @@ module Writer = struct
     ?(flush_interval = Time_ns.Span.of_int_ms 100)
     ?(flush_bytes = 1024 * 1024)
     ?digest
+    ?(accept = [])
     bin_writer
     ~path_for_date
     ()
@@ -266,6 +283,7 @@ module Writer = struct
        | None -> ());
       { bin_writer
       ; digest
+      ; accept
       ; path_for_date
       ; flush_bytes
       ; buffer = Bigbuffer.create 4096
