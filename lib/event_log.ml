@@ -8,7 +8,10 @@ let digest = Bin_prot.Shape.eval_to_digest_string Event.Stable.V1.bin_shape_t
 
 (* Append only. Never remove or reorder an entry: recordings carrying it exist. *)
 let compatible_digests =
-  [ (* Event.Stable.V1 with eleven venues, Hyperliquid to Cme. *)
+  [ (* Event.Stable.V1 with [Funding_v2] appended, for funding without an exchange
+       timestamp. *)
+    "cdf98830f211bb2d1384927d19dab635"
+  ; (* Event.Stable.V1 with eleven venues, Hyperliquid to Cme. *)
     "2f7f1bcba79db3ddd1b04d266342a8af"
   ; (* Event.Stable.V1 before the venue extension: Hyperliquid, Binance, Bybit. New
        constructors were appended, so the old encoding is a subset of the new one. *)
