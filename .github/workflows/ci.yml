@@ -21,3 +21,10 @@ jobs:
             parquet https://github.com/winterchill-trading/parquet.git
       - run: opam exec -- dune build
       - run: opam exec -- dune test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pyarrow type test of examples/query.py
+        run: |
+          python -m pip install --quiet pyarrow==26.0.0 pandas==3.0.6 duckdb==1.5.6
+          scripts/pyarrow-check.sh
