@@ -21,7 +21,13 @@ let day_close =
      and venue = flag "-venue" (optional string) ~doc:"VENUE only this venue"
      and symbol =
        flag "-symbol" (optional string) ~doc:"SYMBOL only this symbol (needs -venue)"
-     and force = flag "-force" no_arg ~doc:" rewrite tables that are up to date" in
+     and force = flag "-force" no_arg ~doc:" rewrite tables that are up to date"
+     and jobs =
+       flag
+         "-jobs"
+         (optional_with_default 1 int)
+         ~doc:"N tables to convert at once (default 1)"
+     in
      fun () ->
        let today = Store.date_of_time (Time_ns.now ()) in
        let date = Option.value date ~default:(Date.add_days today (-1)) in
@@ -40,7 +46,7 @@ let day_close =
            let%map all = Store.instruments (Store.create dir) in
            Some (List.filter all ~f:(fun i -> Venue.equal (Instrument.venue i) venue))
        in
-       let%map results = Day_close.run ~force ?instruments ~dir date in
+       let%map results = Day_close.run ~force ~jobs ?instruments ~dir date in
        List.iter results ~f:(fun (r : Day_close.Result.t) ->
          match r.outcome with
          | No_source -> ()
