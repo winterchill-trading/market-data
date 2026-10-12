@@ -5,7 +5,9 @@
     <root>/<venue>/<symbol>/norm/<stream>/<YYYY-MM-DD>.bin     Event_log
     v}
 
-    Days are UTC dates of the local receive time. *)
+    Days are UTC dates of the local receive time. A [/] in a symbol (Kraken spot,
+    [BTC/USD]) becomes [_] in its directory name ({!symbol_dir_name}); every other symbol
+    is used as is. *)
 
 open! Core
 
@@ -30,7 +32,17 @@ val root : t -> string
 (** UTC date of a timestamp: the day whose file holds it. *)
 val date_of_time : Time_ns.t -> Date.t
 
+(** The directory name of a symbol: [/] replaced by [_], e.g. [BTC/USD] to [BTC_USD]. *)
+val symbol_dir_name : string -> string
+
+(** Inverse of {!symbol_dir_name} where it is unambiguous: on Kraken, a name with [_] that
+    is not a futures symbol ([PF_], [PI_], [FI_], [FF_]) is a spot pair, [BTC_USD] to
+    [BTC/USD]. Other names are returned unchanged. *)
+val symbol_of_dir_name : Venue.t -> string -> string
+
+(** [<root>/<venue>/<symbol_dir_name symbol>] *)
 val instrument_dir : t -> Instrument.t -> string
+
 val stream_dir : t -> Layer.t -> Instrument.t -> Stream.t -> string
 val path : t -> Layer.t -> Instrument.t -> Stream.t -> Date.t -> string
 
@@ -38,8 +50,8 @@ val path : t -> Layer.t -> Instrument.t -> Stream.t -> Date.t -> string
     whose names are not dates are ignored. *)
 val days : t -> Layer.t -> Instrument.t -> Stream.t -> Date.t list Async.Deferred.t
 
-(** Instruments with a directory under the root, sorted. Unknown venue directories are
-    ignored. *)
+(** Instruments with a directory under the root, sorted, symbols mapped back with
+    {!symbol_of_dir_name}. Unknown venue directories are ignored. *)
 val instruments : t -> Instrument.t list Async.Deferred.t
 
 (** Existing files of the given streams for days in [[from, to_]], sorted by day then

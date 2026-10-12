@@ -22,13 +22,28 @@ type t = { root : string } [@@deriving sexp_of]
 let create root = { root }
 let root t = t.root
 let date_of_time time = Time_ns.to_date time ~zone:Time_float.Zone.utc
+let symbol_dir_name symbol = String.tr ~target:'/' ~replacement:'_' symbol
+
+(* Kraken futures symbols contain an underscore of their own ([PF_XBTUSD]). *)
+let kraken_futures_prefixes = [ "PF_"; "PI_"; "FI_"; "FF_" ]
+
+let symbol_of_dir_name venue name =
+  match (venue : Venue.t) with
+  | Kraken
+    when String.mem name '_'
+         && not
+              (List.exists kraken_futures_prefixes ~f:(fun prefix ->
+                 String.is_prefix name ~prefix)) ->
+    String.tr ~target:'_' ~replacement:'/' name
+  | _ -> name
+;;
 
 let instrument_dir t instrument =
   String.concat
     ~sep:"/"
     [ t.root
     ; Venue.to_string (Instrument.venue instrument)
-    ; Symbol.to_string (Instrument.symbol instrument)
+    ; symbol_dir_name (Symbol.to_string (Instrument.symbol instrument))
     ]
 ;;
 
@@ -67,7 +82,8 @@ let instruments t =
       (List.filter_map venues ~f:Venue.of_string_opt)
       ~f:(fun venue ->
         let%map symbols = ls (t.root ^/ Venue.to_string venue) in
-        List.map symbols ~f:(Instrument.create venue))
+        List.map symbols ~f:(fun name ->
+          Instrument.create venue (symbol_of_dir_name venue name)))
   in
   List.concat per_venue |> List.sort ~compare:Instrument.compare
 ;;
