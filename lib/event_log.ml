@@ -6,6 +6,18 @@ let path ~dir instrument stream date =
 
 let digest = Bin_prot.Shape.eval_to_digest_string Event.Stable.V1.bin_shape_t
 
+(* Append only. Never remove or reorder an entry: recordings carrying it exist. *)
+let compatible_digests =
+  [ (* Event.Stable.V1 with eleven venues, Hyperliquid to Cme. *)
+    "2f7f1bcba79db3ddd1b04d266342a8af"
+  ; (* Event.Stable.V1 before the venue extension: Hyperliquid, Binance, Bybit. New
+       constructors were appended, so the old encoding is a subset of the new one. *)
+    "4cf56dfbcb69fbab68b38db7a2944d7b"
+  ]
+;;
+
+let accept = List.filter compatible_digests ~f:(fun d -> not (String.equal d digest))
+
 module Key = struct
   type t = Instrument.t * Stream.t [@@deriving compare, equal, hash, sexp_of]
 end
@@ -28,6 +40,7 @@ module Writer = struct
         ?flush_interval:t.flush_interval
         ?flush_bytes:t.flush_bytes
         ~digest
+        ~accept
         Event.bin_writer_t
         ~path_for_date:(path ~dir:t.dir instrument stream)
         ())
@@ -51,8 +64,8 @@ module Writer = struct
   ;;
 end
 
-let read_file path = Framed.read_file ~digest Event.bin_reader_t path
-let load_file path = Framed.load_file ~digest Event.bin_reader_t path
+let read_file path = Framed.read_file ~digest ~accept Event.bin_reader_t path
+let load_file path = Framed.load_file ~digest ~accept Event.bin_reader_t path
 
 let read_merged paths =
   Merge.sorted

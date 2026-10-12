@@ -121,12 +121,12 @@ let%expect_test "a file of another record type fails clearly" =
     let%bind () = Framed.Writer.close w in
     let%bind () = print_failure ~dir (fun () -> Event_log.load_file path) in
     [%expect
-      {| ("bin_shape digest mismatch: the file was written with a different record type"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(expected 2f7f1bcba79db3ddd1b04d266342a8af)(found e49e60d7b3fcee2c9c4c276d753deffc)) |}];
+      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
     let%bind () =
       print_failure ~dir (fun () -> Pipe.to_list (Event_log.read_merged [ path ]))
     in
     [%expect
-      {| ("bin_shape digest mismatch: the file was written with a different record type"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(expected 2f7f1bcba79db3ddd1b04d266342a8af)(found e49e60d7b3fcee2c9c4c276d753deffc)) |}];
+      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
     let w = Event_log.Writer.create ~dir () in
     let%bind () =
       print_failure ~dir (fun () ->
@@ -134,7 +134,7 @@ let%expect_test "a file of another record type fails clearly" =
         Event_log.Writer.close w)
     in
     [%expect
-      {| ("bin_shape digest mismatch: the file was written with a different record type"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(expected 2f7f1bcba79db3ddd1b04d266342a8af)(found e49e60d7b3fcee2c9c4c276d753deffc)) |}];
+      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
     return ())
 ;;
 
