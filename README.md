@@ -282,6 +282,11 @@ line calls `disconnect`. It prints counts of files, frames, disconnects, events,
 errors (frames the normalizer rejected and raw lines that do not parse, with the
 first ten) and skipped files.
 
+L2 events also feed the snapshot index `norm/l2/_snapshots/<date>.bin` through
+the same `Event_log.Writer` the recorder uses, so a rebuilt day has the same
+index byte for byte; `-snapshot-interval SPAN` (`?snapshot_interval`) changes
+the one-minute default and `0s` writes none.
+
 Market-data has no venue code, so this binary has no normalizers and only
 counts files as skipped. A feed library plugs in by implementing
 `Market_data.Normalizer.S` over its own normalizer:
