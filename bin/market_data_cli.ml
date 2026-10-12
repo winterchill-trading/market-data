@@ -39,6 +39,17 @@ let day_close_processes ~processes ~dir ~date ~force ~jobs instruments =
   return ()
 ;;
 
+(* The day's universe is only complete when every instrument was converted, so runs
+   limited by -venue or -symbol leave it alone. *)
+let write_instruments ~dir ~date ~all =
+  if not all
+  then return ()
+  else (
+    match%map Instruments_table.write ~dir date with
+    | 0 -> ()
+    | rows -> printf "wrote %s (%d rows)\n" (Instruments_table.path ~dir date) rows)
+;;
+
 let day_close =
   Command.async
     ~summary:"Convert a closed day of norm/ event logs into parquet/ tables"
@@ -83,14 +94,18 @@ let day_close =
        in
        if processes > 1
        then (
+         let all = Option.is_none instruments in
          let%bind instruments =
            match instruments with
            | Some l -> return l
            | None -> Store.instruments (Store.create dir)
          in
-         day_close_processes ~processes ~dir ~date ~force ~jobs instruments)
+         let%bind () =
+           day_close_processes ~processes ~dir ~date ~force ~jobs instruments
+         in
+         write_instruments ~dir ~date ~all)
        else (
-         let%map results = Day_close.run ~force ~jobs ?instruments ~dir date in
+         let%bind results = Day_close.run ~force ~jobs ?instruments ~dir date in
          List.iter results ~f:(fun (r : Day_close.Result.t) ->
            match r.outcome with
            | No_source -> ()
@@ -110,7 +125,8 @@ let day_close =
                   | parts -> ", replaced " ^ String.concat ~sep:" " parts));
              (match tail with
               | Clean -> ()
-              | tail -> print_s [%message "  damaged source" (tail : Framed.Tail.t)]))))
+              | tail -> print_s [%message "  damaged source" (tail : Framed.Tail.t)]));
+         write_instruments ~dir ~date ~all:(Option.is_none instruments)))
 ;;
 
 let views =
@@ -120,6 +136,7 @@ let views =
      fun () ->
        let%map units_csv = Parquet_views.units_csv ~dir in
        print_endline (Parquet_views.sql ~dir ());
+       print_endline (Parquet_views.instruments_view ~dir);
        print_endline (Parquet_views.derived_sql ?units_csv Parquet_kind.all))
 ;;
 
