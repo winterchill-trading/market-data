@@ -154,3 +154,49 @@ let of_range
       let%map starts = starts ~dir ~streams instruments start_at in
       Ok (of_events ?speed ?time_source (from_start (Event_log.read_merged files) starts)))
 ;;
+
+let of_raw
+  ?speed
+  ?time_source
+  ?streams
+  ?(on_error = fun e -> Log.Global.error_s (Error.sexp_of_t e))
+  ~normalizer:(module N : Normalizer.S)
+  ~data_dir
+  ~symbol
+  ~start
+  ~stop
+  ()
+  =
+  let instrument = Instrument.create N.venue symbol in
+  let states = Md_stream.Table.create () in
+  let state stream = Hashtbl.find_or_add states stream ~default:N.create in
+  let raw =
+    Raw_reader.read ?streams ~on_error ~data_dir ~venue:N.venue ~symbol ~start ~stop ()
+  in
+  let items =
+    Pipe.concat_map_list raw ~f:(function
+      | Raw_reader.Item.Frame { recv_ts; stream; frame } ->
+        (match N.frame (state stream) ~recv_ts frame with
+         | Ok events -> List.map events ~f:(fun e -> `Event e)
+         | Error e ->
+           on_error
+             (Error.tag_s
+                e
+                ~tag:
+                  [%message
+                    "" (stream : Md_stream.t) (recv_ts : Time_ns.Alternate_sexp.t)]);
+           [])
+      | Gap { recv_ts; stream } ->
+        N.disconnect (state stream);
+        [ `Gap
+            { Gap.recv_ts
+            ; venue = N.venue
+            ; instrument = Some instrument
+            ; stream = Some stream
+            ; reason = Disconnect
+            }
+        ])
+  in
+  upon (Pipe.closed items) (fun () -> Pipe.close_read raw);
+  of_items ?speed ?time_source items
+;;

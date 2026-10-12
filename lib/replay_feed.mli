@@ -19,6 +19,32 @@ val of_events
   -> Event.t Pipe.Reader.t
   -> Feed.t
 
+(** Replays [items], sorted by [recv_ts]; gaps go to [gaps] without pushback. *)
+val of_items
+  :  ?speed:float
+  -> ?time_source:Time_source.t
+  -> [ `Event of Event.t | `Gap of Gap.t ] Pipe.Reader.t
+  -> Feed.With_gaps.t
+
+(** Replays the recorder's raw minute files of [symbol] on [normalizer]'s venue with
+    [recv_ts] in [[start, stop)] ({!Raw_reader.read}), turning frames into events with
+    [normalizer] (one state per stream). Each empty raw line resets that stream's
+    normalizer and is reported as a {!Gap.Reason.Disconnect} gap for the stream. Frames
+    the normalizer rejects and unreadable lines go to [on_error] (default: logged) and
+    are skipped. *)
+val of_raw
+  :  ?speed:float
+  -> ?time_source:Time_source.t
+  -> ?streams:Md_stream.t list
+  -> ?on_error:(Error.t -> unit)
+  -> normalizer:Normalizer.t
+  -> data_dir:string
+  -> symbol:string
+  -> start:Time_ns.t
+  -> stop:Time_ns.t
+  -> unit
+  -> Feed.With_gaps.t
+
 (** Replays {!Event_log} files, merged by [recv_ts]. *)
 val of_files : ?speed:float -> ?time_source:Time_source.t -> string list -> Feed.t
 
