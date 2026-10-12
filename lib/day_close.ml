@@ -36,7 +36,7 @@ module Result = struct
 end
 
 module Manifest = struct
-  let code_version = "day-close-1 events-" ^ Event_log.digest
+  let code_version = "day-close-2 events-" ^ Event_log.digest
 
   module Input = struct
     type t =
@@ -264,9 +264,11 @@ let table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument d
   { Result.instrument; kind; path = target; outcome; stats }
 ;;
 
+let default_row_group_rows = 65_536
+
 let run
   ?compression
-  ?(row_group_rows = 1_048_576)
+  ?(row_group_rows = default_row_group_rows)
   ?(candle_interval = Time_ns.Span.minute)
   ?(force = false)
   ?(jobs = 1)
@@ -275,6 +277,10 @@ let run
   date
   =
   if jobs < 1 then raise_s [%message "Day_close: jobs must be at least 1" (jobs : int)];
+  if row_group_rows < 1
+  then
+    raise_s
+      [%message "Day_close: row_group_rows must be at least 1" (row_group_rows : int)];
   let%bind instruments =
     match instruments with
     | Some l -> return l

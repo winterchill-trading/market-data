@@ -78,11 +78,15 @@ module Result : sig
   [@@deriving sexp_of]
 end
 
+(** Rows per Parquet row group unless told otherwise: 65_536. Smaller groups let DuckDB
+    skip more of a file by row group statistics on selective time-range queries. *)
+val default_row_group_rows : int
+
 (** [instruments] defaults to every instrument under [dir]. [force] rewrites tables that
-    are up to date. [row_group_rows] defaults to 1_048_576, [candle_interval] to one
-    minute. Up to [jobs] tables (default 1) are converted at once; Parquet encoding and
-    writes run in [In_thread], so they overlap. Results are in instrument then table order
-    whatever [jobs] is. *)
+    are up to date. [row_group_rows] defaults to {!default_row_group_rows},
+    [candle_interval] to one minute. Up to [jobs] tables (default 1) are converted at
+    once; Parquet encoding and writes run in [In_thread], so they overlap. Results are in
+    instrument then table order whatever [jobs] is. *)
 val run
   :  ?compression:[ `None | `Zstd ]
   -> ?row_group_rows:int
