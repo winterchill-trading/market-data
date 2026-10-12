@@ -41,3 +41,44 @@ let%expect_test "daily rotation and read back" =
       |}];
     return ())
 ;;
+
+let write_three dir =
+  let w = Frame_log.Writer.create ~dir Sample.btc Bbo in
+  List.iter [ 1; 2; 3 ] ~f:(fun i ->
+    Frame_log.Writer.write w ~recv_ts:(Sample.ts i) ~stream_id:1 (sprintf "payload-%d" i));
+  let%map () = Frame_log.Writer.close w in
+  List.hd_exn (Frame_log.Writer.files w)
+;;
+
+let file_size path =
+  let%map stat = Unix.stat path in
+  Int64.to_int_exn stat.size
+;;
+
+let%expect_test "crash safety: a truncated tail is dropped" =
+  Sample.with_temp_dir (fun dir ->
+    let%bind path = write_three dir in
+    let%bind size = file_size path in
+    printf "file size %d\n" size;
+    let%bind () =
+      Deferred.List.iter ~how:`Sequential [ 1; 10; 22; 26 ] ~f:(fun cut ->
+        let%bind path = write_three (dir ^/ Int.to_string cut) in
+        let%bind () = Unix.truncate path ~len:(Int64.of_int (size - cut)) in
+        let%map records, tail = Frame_log.load_file path in
+        printf "cut %d bytes: " cut;
+        print_s
+          [%message
+            ""
+              ~payloads:(List.map records ~f:Frame_log.Record.payload : string list)
+              (tail : Framed.Tail.t)])
+    in
+    [%expect
+      {|
+      file size 84
+      cut 1 bytes: ((payloads (payload-1 payload-2)) (tail (Truncated (bytes 27))))
+      cut 10 bytes: ((payloads (payload-1 payload-2)) (tail (Truncated (bytes 18))))
+      cut 22 bytes: ((payloads (payload-1 payload-2)) (tail (Truncated (bytes 6))))
+      cut 26 bytes: ((payloads (payload-1 payload-2)) (tail (Truncated (bytes 2))))
+      |}];
+    return ())
+;;
