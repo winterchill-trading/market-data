@@ -1,15 +1,7 @@
 open! Core
 
 let path ~dir instrument stream date =
-  String.concat
-    ~sep:"/"
-    [ dir
-    ; Venue.to_string (Instrument.venue instrument)
-    ; Symbol.to_string (Instrument.symbol instrument)
-    ; "norm"
-    ; Stream.to_string stream
-    ; Date.to_string date ^ ".bin"
-    ]
+  Store.path (Store.create dir) Norm instrument stream date
 ;;
 
 module Key = struct

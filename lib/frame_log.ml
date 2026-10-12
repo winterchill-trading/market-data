@@ -16,15 +16,7 @@ module Record = struct
 end
 
 let path ~dir instrument stream date =
-  String.concat
-    ~sep:"/"
-    [ dir
-    ; Venue.to_string (Instrument.venue instrument)
-    ; Symbol.to_string (Instrument.symbol instrument)
-    ; "raw"
-    ; Stream.to_string stream
-    ; Date.to_string date ^ ".binlog"
-    ]
+  Store.path (Store.create dir) Raw instrument stream date
 ;;
 
 module Writer = struct
