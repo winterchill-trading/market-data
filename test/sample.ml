@@ -36,3 +36,25 @@ let relative ~dir path =
   | Some p -> p
   | None -> path
 ;;
+
+let bbo ~ms ~bid ~ask : Bbo.t =
+  { instrument = btc
+  ; exch_ts = ts ms
+  ; recv_ts = ts (ms + 1)
+  ; bid_price = Price.of_string bid
+  ; bid_size = Size.one
+  ; ask_price = Price.of_string ask
+  ; ask_size = Size.one
+  }
+;;
+
+let funding ~ms ~rate : Funding.t =
+  { instrument = btc
+  ; exch_ts = ts ms
+  ; recv_ts = ts (ms + 1)
+  ; rate
+  ; next_funding_time = ts 28_800_000
+  ; mark_price = Price.of_int 100
+  ; index_price = Price.of_int 100
+  }
+;;
