@@ -48,9 +48,11 @@ end
     closes at the end of the file or at the first damaged frame; [tail] is determined
     then.
 
-    With [digest], raises if the file's header carries a different digest. *)
+    With [digest], raises if the file's header carries a different digest. [buf_len] is
+    the reader's buffer size. *)
 val read_file
   :  ?digest:string
+  -> ?buf_len:int
   -> 'a Bin_prot.Type_class.reader
   -> string
   -> 'a Pipe.Reader.t * Tail.t Deferred.t
@@ -61,6 +63,7 @@ val valid_length : string -> int Deferred.t
 (** All complete frames of [path], and its tail. *)
 val load_file
   :  ?digest:string
+  -> ?buf_len:int
   -> 'a Bin_prot.Type_class.reader
   -> string
   -> ('a list * Tail.t) Deferred.t

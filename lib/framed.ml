@@ -59,32 +59,38 @@ let read_digest path =
     | `Absent | `Truncated _ -> None)
 ;;
 
-let decode_header bytes =
-  let buf = Bigstring.of_bytes bytes in
-  Bin_prot.Utils.bin_read_size_header buf ~pos_ref:(ref 0)
-;;
-
 (* Reads frames until the end of the file, a damaged frame, or [stop ()]. Returns the tail
    and the offset just past the last complete frame. *)
 let scan_frames ?(start = 0) reader ~decode ~stop ~f =
-  let header = Bytes.create header_length in
+  (* Header and payload buffers are reused across frames. *)
+  let header = Bigstring.create header_length in
+  let payload = ref (Bigstring.create 256) in
   let rec loop offset =
     if stop ()
     then return (Tail.Clean, offset)
     else (
-      match%bind Reader.really_read reader header with
+      match%bind
+        Reader.really_read_bigsubstring
+          reader
+          (Bigsubstring.create header ~pos:0 ~len:header_length)
+      with
       | `Eof 0 -> return (Tail.Clean, offset)
       | `Eof n -> return (Tail.Truncated { bytes = n }, offset)
       | `Ok ->
-        let size = decode_header header in
+        let size = Bin_prot.Utils.bin_read_size_header header ~pos_ref:(ref 0) in
         if size < 0 || size > max_frame_size
         then return (Tail.Corrupt { offset }, offset)
         else (
-          let payload = Bytes.create size in
-          match%bind Reader.really_read reader payload with
+          if Bigstring.length !payload < size
+          then payload := Bigstring.create (Int.max size (2 * Bigstring.length !payload));
+          match%bind
+            Reader.really_read_bigsubstring
+              reader
+              (Bigsubstring.create !payload ~pos:0 ~len:size)
+          with
           | `Eof n -> return (Tail.Truncated { bytes = header_length + n }, offset)
           | `Ok ->
-            (match decode payload ~size with
+            (match decode !payload ~size with
              | None -> return (Tail.Corrupt { offset }, offset)
              | Some v ->
                let%bind () = f v in
@@ -105,8 +111,7 @@ let scan_file ?digest ~path reader ~decode ~stop ~f =
      | _ -> scan_frames ~start:File_header.length reader ~decode ~stop ~f)
 ;;
 
-let decode_with (bin_reader : _ Bin_prot.Type_class.reader) payload ~size =
-  let buf = Bigstring.of_bytes payload in
+let decode_with (bin_reader : _ Bin_prot.Type_class.reader) buf ~size =
   let pos_ref = ref 0 in
   match bin_reader.read buf ~pos_ref with
   | v when !pos_ref = size -> Some v
@@ -127,12 +132,12 @@ let valid_length path =
     length)
 ;;
 
-let read_file ?digest bin_reader path =
+let read_file ?digest ?buf_len bin_reader path =
   let tail = Ivar.create () in
   let pipe =
     Pipe.create_reader ~close_on_exception:true (fun w ->
       let%map t, _ =
-        Reader.with_file path ~f:(fun reader ->
+        Reader.with_file ?buf_len path ~f:(fun reader ->
           scan_file
             ?digest
             ~path
@@ -146,8 +151,8 @@ let read_file ?digest bin_reader path =
   pipe, Ivar.read tail
 ;;
 
-let load_file ?digest bin_reader path =
-  let pipe, tail = read_file ?digest bin_reader path in
+let load_file ?digest ?buf_len bin_reader path =
+  let pipe, tail = read_file ?digest ?buf_len bin_reader path in
   let%bind values = Pipe.to_list pipe in
   let%map tail in
   values, tail
@@ -161,7 +166,8 @@ module Writer = struct
     ; digest : string option
     ; path_for_date : Date.t -> string
     ; flush_bytes : int
-    ; buffer : Buffer.t
+    ; buffer : Bigbuffer.t
+    ; mutable scratch : Bigstring.t (** one encoded frame, reused *)
     ; mutable buffer_date : Date.t option
     ; sequencer : unit Throttle.Sequencer.t
     ; mutable file : (Date.t * W.t) option
@@ -239,9 +245,9 @@ module Writer = struct
 
   let flush_buffer t =
     match t.buffer_date with
-    | Some date when Buffer.length t.buffer > 0 ->
-      let data = Buffer.contents t.buffer in
-      Buffer.clear t.buffer;
+    | Some date when Bigbuffer.length t.buffer > 0 ->
+      let data = Bigbuffer.contents t.buffer in
+      Bigbuffer.clear t.buffer;
       write_chunk t date data
     | _ -> Throttle.enqueue t.sequencer (fun () -> return ())
   ;;
@@ -262,7 +268,8 @@ module Writer = struct
       ; digest
       ; path_for_date
       ; flush_bytes
-      ; buffer = Buffer.create 4096
+      ; buffer = Bigbuffer.create 4096
+      ; scratch = Bigstring.create 256
       ; buffer_date = None
       ; sequencer = Throttle.Sequencer.create ()
       ; file = None
@@ -276,8 +283,20 @@ module Writer = struct
       ~stop:(Ivar.read t.stop)
       ~continue_on_error:false
       flush_interval
-      (fun () -> if Buffer.length t.buffer > 0 then don't_wait_for (flush_buffer t));
+      (fun () -> if Bigbuffer.length t.buffer > 0 then don't_wait_for (flush_buffer t));
     t
+  ;;
+
+  (* Encodes into [scratch] and copies into the buffer: no allocation per frame once
+     [scratch] fits the largest frame. *)
+  let add_frame t v =
+    let size = t.bin_writer.size v in
+    let total = header_length + size in
+    if Bigstring.length t.scratch < total
+    then t.scratch <- Bigstring.create (Int.max total (2 * Bigstring.length t.scratch));
+    let pos = Bin_prot.Utils.bin_write_size_header t.scratch ~pos:0 size in
+    let (_ : int) = t.bin_writer.write t.scratch ~pos v in
+    Bigbuffer.add_bigsubstring t.buffer t.scratch ~pos:0 ~len:total
   ;;
 
   let append t v ~time =
@@ -286,10 +305,10 @@ module Writer = struct
     (match t.buffer_date with
      | Some d when Date.equal d date -> ()
      | _ ->
-       if Buffer.length t.buffer > 0 then don't_wait_for (flush_buffer t);
+       if Bigbuffer.length t.buffer > 0 then don't_wait_for (flush_buffer t);
        t.buffer_date <- Some date);
-    Buffer.add_string t.buffer (encode t.bin_writer v);
-    if Buffer.length t.buffer >= t.flush_bytes then don't_wait_for (flush_buffer t)
+    add_frame t v;
+    if Bigbuffer.length t.buffer >= t.flush_bytes then don't_wait_for (flush_buffer t)
   ;;
 
   let flush t = flush_buffer t
