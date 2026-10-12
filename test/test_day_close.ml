@@ -285,3 +285,35 @@ let%expect_test "per-table stats of a rebuild" =
        (wrote_bytes true) (timed true))
       |}])
 ;;
+
+let%expect_test "parallel jobs write the same tables in the same order" =
+  let run ~jobs =
+    Sample.with_temp_dir (fun dir ->
+      let%bind () = write_log ~dir in
+      let%bind results = Day_close.run ~jobs ~dir day in
+      let%map rows =
+        Parquet_views.query
+          ~format:Csv
+          ~dir
+          "SELECT 'trades' AS t, count(*) AS n FROM trades UNION ALL SELECT 'l2', \
+           count(*) FROM l2 UNION ALL SELECT 'candles', count(*) FROM candles ORDER BY \
+           ALL"
+      in
+      ( List.map results ~f:(fun (r : Day_close.Result.t) ->
+          Sample.relative ~dir r.path, r.outcome)
+      , Or_error.ok_exn rows ))
+  in
+  let%bind sequential = run ~jobs:1 in
+  let%map parallel = run ~jobs:4 in
+  printf
+    "same results: %b\n"
+    ([%equal: (string * Day_close.Outcome.t) list * string] sequential parallel);
+  print_string (snd parallel);
+  [%expect {|
+    same results: true
+    t,n
+    candles,3
+    l2,4
+    trades,4
+    |}]
+;;
