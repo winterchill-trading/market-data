@@ -178,3 +178,75 @@ let%expect_test "day close is idempotent and replaces sink parts" =
       |}];
     return ())
 ;;
+
+let%expect_test "manifests decide what is up to date" =
+  Sample.with_temp_dir (fun dir ->
+    let%bind () = write_log ~dir in
+    let run () =
+      let%map results = Day_close.run ~instruments:[ Sample.btc ] ~dir day in
+      List.iter results ~f:(fun (r : Day_close.Result.t) ->
+        printf
+          "%s %s\n"
+          (Parquet_kind.to_string r.kind)
+          (Sexp.to_string [%sexp (r.outcome : Day_close.Outcome.t)]))
+    in
+    let%bind () = run () in
+    let trades = Parquet_kind.path ~dir Sample.btc Trades day in
+    let%bind manifest = Day_close.Manifest.load trades in
+    let manifest = Option.value_exn manifest in
+    print_s
+      [%message
+        ""
+          ~inputs:
+            (List.map manifest.inputs ~f:(fun i -> i.path, i.size) : (string * int) list)
+          ~output:(manifest.output : string)
+          ~has_bytes:(manifest.output_bytes > 0 : bool)
+          ~rows:(manifest.rows : int)
+          ~version_ok:
+            (String.equal manifest.code_version Day_close.Manifest.code_version : bool)];
+    [%expect
+      {|
+      trades (Written(rows 3)(tail Clean))
+      bbo (Written(rows 1)(tail Clean))
+      l2 (Written(rows 4)(tail Clean))
+      funding (Written(rows 1)(tail Clean))
+      candles (Written(rows 2)(tail Clean))
+      ((inputs ((binance/BTCUSDT/norm/trades/2026-01-01.bin 205)))
+       (output binance/BTCUSDT/parquet/trades/2026-01-01.parquet) (has_bytes true)
+       (rows 3) (version_ok true))
+      |}];
+    let%bind () = run () in
+    [%expect
+      {|
+      trades Up_to_date
+      bbo Up_to_date
+      l2 Up_to_date
+      funding Up_to_date
+      candles Up_to_date
+      |}];
+    (* New events for the day change the trades input only. *)
+    let w = Event_log.Writer.create ~dir () in
+    Event_log.Writer.append w (Trade (Sample.trade ~ms:50 ~price:"100" ~size:"1" ()));
+    let%bind () = Event_log.Writer.close w in
+    let%bind () = run () in
+    [%expect
+      {|
+      trades (Written(rows 4)(tail Clean))
+      bbo Up_to_date
+      l2 Up_to_date
+      funding Up_to_date
+      candles (Written(rows 2)(tail Clean))
+      |}];
+    (* A table from before manifests existed is rebuilt. *)
+    let%bind () = Unix.unlink (Day_close.Manifest.path trades) in
+    let%bind () = run () in
+    [%expect
+      {|
+      trades (Written(rows 4)(tail Clean))
+      bbo Up_to_date
+      l2 Up_to_date
+      funding Up_to_date
+      candles Up_to_date
+      |}];
+    return ())
+;;
