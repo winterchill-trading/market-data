@@ -65,3 +65,40 @@ let%expect_test "listing days, instruments and files" =
       binance/BTCUSDT/norm/trades/2026-01-04.bin
       |}])
 ;;
+
+let%expect_test "symbols with a slash get one directory level" =
+  let store = Store.create "/data" in
+  let day = Date.of_string "2026-03-04" in
+  let kraken s = Instrument.create Kraken s in
+  List.iter
+    [ kraken "BTC/USD"; kraken "PF_XBTUSD"; Instrument.create Hyperliquid "ETH" ]
+    ~f:(fun i ->
+      print_endline (Store.path store Norm i Trades day);
+      print_endline (Parquet_kind.path ~dir:"/data" i Trades day));
+  [%expect
+    {|
+    /data/kraken/BTC_USD/norm/trades/2026-03-04.bin
+    /data/kraken/BTC_USD/parquet/trades/2026-03-04.parquet
+    /data/kraken/PF_XBTUSD/norm/trades/2026-03-04.bin
+    /data/kraken/PF_XBTUSD/parquet/trades/2026-03-04.parquet
+    /data/hyperliquid/ETH/norm/trades/2026-03-04.bin
+    /data/hyperliquid/ETH/parquet/trades/2026-03-04.parquet
+    |}];
+  Sample.with_temp_dir (fun dir ->
+    let w = Event_log.Writer.create ~dir () in
+    List.iter [ "BTC/USD"; "PF_XBTUSD" ] ~f:(fun s ->
+      Event_log.Writer.append
+        w
+        (Trade { (Sample.trade ~ms:0 ~price:"1" ~size:"1" ()) with instrument = kraken s }));
+    let%bind () = Event_log.Writer.close w in
+    List.iter (Event_log.Writer.files w) ~f:(fun f ->
+      print_endline (Sample.relative ~dir f));
+    let%map instruments = Store.instruments (Store.create dir) in
+    print_s [%sexp (List.map instruments ~f:Instrument.to_string : string list)];
+    [%expect
+      {|
+      kraken/BTC_USD/norm/trades/2026-01-01.bin
+      kraken/PF_XBTUSD/norm/trades/2026-01-01.bin
+      (kraken:BTC/USD kraken:PF_XBTUSD)
+      |}])
+;;
