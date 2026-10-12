@@ -120,8 +120,11 @@ let query =
          "-format"
          (optional_with_default Parquet_views.Format.Box format_arg)
          ~doc:"FORMAT box, csv, json or markdown (default box)"
+     and no_log =
+       flag "-no-log" no_arg ~doc:" do not append the query to DIR/query-log.ndjson"
      and sql = anon ("SQL" %: string) in
      fun () ->
+       let%bind () = if no_log then return () else Query_log.append ~dir sql in
        let%map.Deferred.Or_error output = Parquet_views.query ~duckdb ~format ~dir sql in
        print_string output)
 ;;
