@@ -62,3 +62,25 @@ let%expect_test "l2 update" =
     bin_io: 68 bytes, round trip true
     |}]
 ;;
+
+let%expect_test "funding" =
+  print_endline [%bin_digest: Funding.Stable.V1.t];
+  let f : Funding.t =
+    { instrument = Sample.btc
+    ; exch_ts = Sample.ts 0
+    ; recv_ts = Sample.ts 3
+    ; rate = 0.000125
+    ; next_funding_time = Sample.ts 3_600_000
+    ; mark_price = Price.of_string "100.2"
+    ; index_price = Price.of_string "100.18"
+    }
+  in
+  print_s [%sexp (f.next_funding_time : Time_ns.Alternate_sexp.t)];
+  Sample.bin_round_trip (module Funding) ~equal:Funding.equal f;
+  [%expect
+    {|
+    c1e3acfc954a469df7b2a57808fab43c
+    "2026-01-01 01:00:00Z"
+    bin_io: 62 bytes, round trip true
+    |}]
+;;
