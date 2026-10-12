@@ -34,7 +34,14 @@ re-exported here with stable bin_io encodings.
 ```
 
 `raw/` and `norm/` hold one file per instrument, stream and UTC day of the local
-receive time.
+receive time. A `/` in a symbol (Kraken spot `BTC/USD`) becomes `_` in its
+directory name (`kraken/BTC_USD/...`); listing maps Kraken spot names back
+(names starting with the futures prefixes `PF_`, `PI_`, `FI_`, `FF_` stay as
+they are). Other symbols are used unchanged.
+
+The root may also hold `query-log.ndjson` (see `query`) and an optional
+`units_per_contract.csv` (see the derived views).
+
 Every file is a sequence of frames:
 
 ```
@@ -46,6 +53,17 @@ Every file is a sequence of frames:
 the layout of `Bin_prot.Utils.bin_dump ~header:true`. Files are only appended
 to, so a crash can at worst leave a partial last frame: readers stop there and
 report it, and a writer reopening the file cuts it off before appending.
+
+`norm/` files written since headers were introduced start with a 40-byte
+header: the magic `MDFRAME1` and the 32-character hex `bin_shape` digest of
+`Event.Stable.V1.t` (`Event_log.digest`). Read as a frame size the magic is far
+above the 256 MiB limit, so headerless files from before stay readable and are
+read unchecked. Readers raise on a file whose digest differs, rather than
+decoding garbage, and a writer refuses to append to one. Any change to the
+event type's shape, including a new `Venue` constructor, changes the digest;
+such a change needs a `Stable.V2` and a reader for the old files.
+`test/fixtures/event-log-v1` holds files written by the code of that time; a
+test checks they still read, so never regenerate them.
 
 ## Modules
 
