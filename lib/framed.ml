@@ -22,45 +22,65 @@ let decode_header bytes =
   Bin_prot.Utils.bin_read_size_header buf ~pos_ref:(ref 0)
 ;;
 
-let read_frames (bin_reader : _ Bin_prot.Type_class.reader) reader ~stop ~f =
+(* Reads frames until the end of the file, a damaged frame, or [stop ()]. Returns the tail
+   and the offset just past the last complete frame. *)
+let scan_frames reader ~decode ~stop ~f =
   let header = Bytes.create header_length in
   let rec loop offset =
     if stop ()
-    then return Tail.Clean
+    then return (Tail.Clean, offset)
     else (
       match%bind Reader.really_read reader header with
-      | `Eof 0 -> return Tail.Clean
-      | `Eof n -> return (Tail.Truncated { bytes = n })
+      | `Eof 0 -> return (Tail.Clean, offset)
+      | `Eof n -> return (Tail.Truncated { bytes = n }, offset)
       | `Ok ->
         let size = decode_header header in
         if size < 0 || size > max_frame_size
-        then return (Tail.Corrupt { offset })
+        then return (Tail.Corrupt { offset }, offset)
         else (
           let payload = Bytes.create size in
           match%bind Reader.really_read reader payload with
-          | `Eof n -> return (Tail.Truncated { bytes = header_length + n })
+          | `Eof n -> return (Tail.Truncated { bytes = header_length + n }, offset)
           | `Ok ->
-            let buf = Bigstring.of_bytes payload in
-            let pos_ref = ref 0 in
-            (match bin_reader.read buf ~pos_ref with
-             | v when !pos_ref = size ->
+            (match decode payload ~size with
+             | None -> return (Tail.Corrupt { offset }, offset)
+             | Some v ->
                let%bind () = f v in
-               loop (offset + header_length + size)
-             | _ -> return (Tail.Corrupt { offset })
-             | exception _ -> return (Tail.Corrupt { offset }))))
+               loop (offset + header_length + size))))
   in
   loop 0
+;;
+
+let decode_with (bin_reader : _ Bin_prot.Type_class.reader) payload ~size =
+  let buf = Bigstring.of_bytes payload in
+  let pos_ref = ref 0 in
+  match bin_reader.read buf ~pos_ref with
+  | v when !pos_ref = size -> Some v
+  | _ -> None
+  | exception _ -> None
+;;
+
+let valid_length path =
+  Reader.with_file path ~f:(fun reader ->
+    let%map _tail, length =
+      scan_frames
+        reader
+        ~decode:(fun _ ~size:_ -> Some ())
+        ~stop:(fun () -> false)
+        ~f:(fun () -> return ())
+    in
+    length)
 ;;
 
 let read_file bin_reader path =
   let tail = Ivar.create () in
   let pipe =
     Pipe.create_reader ~close_on_exception:true (fun w ->
-      let%map t =
+      let%map t, _ =
         Reader.with_file path ~f:(fun reader ->
-          read_frames
-            bin_reader
+          scan_frames
             reader
+            ~decode:(decode_with bin_reader)
             ~stop:(fun () -> Pipe.is_closed w)
             ~f:(fun v -> Pipe.write_if_open w v))
       in
@@ -102,6 +122,19 @@ module Writer = struct
       W.close w
   ;;
 
+  (* A crash can leave a partial frame at the end of a file; appending after it would hide
+     every later frame from readers, so cut it off first. *)
+  let repair path =
+    match%bind Sys.file_exists_exn path with
+    | false -> return ()
+    | true ->
+      let%bind valid = valid_length path in
+      let%bind stat = Unix.stat path in
+      if Int64.( > ) stat.size (Int64.of_int valid)
+      then Unix.truncate path ~len:(Int64.of_int valid)
+      else return ()
+  ;;
+
   let file_for t date =
     match t.file with
     | Some (d, w) when Date.equal d date -> return w
@@ -109,6 +142,7 @@ module Writer = struct
       let%bind () = close_file t in
       let path = t.path_for_date date in
       let%bind () = Unix.mkdir ~p:() (Filename.dirname path) in
+      let%bind () = repair path in
       let%map w = W.open_file ~append:true path in
       t.file <- Some (date, w);
       t.files <- path :: t.files;

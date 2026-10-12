@@ -32,6 +32,9 @@ val read_file
   -> string
   -> 'a Pipe.Reader.t * Tail.t Deferred.t
 
+(** Length in bytes of the complete frames at the start of [path]. *)
+val valid_length : string -> int Deferred.t
+
 (** All complete frames of [path], and its tail. *)
 val load_file : 'a Bin_prot.Type_class.reader -> string -> ('a list * Tail.t) Deferred.t
 
@@ -42,7 +45,8 @@ val load_file : 'a Bin_prot.Type_class.reader -> string -> ('a list * Tail.t) De
     directories are created. Encoded frames are buffered and written out every
     [flush_interval] (default 100ms), when the buffer reaches [flush_bytes] (default 1
     MiB), on {!flush}, and on {!close}. Files are opened in append mode, so restarting a
-    writer on the same day continues the existing file. *)
+    writer on the same day continues the existing file, after cutting off any damaged tail
+    a crash left behind. *)
 module Writer : sig
   type 'a t
 
