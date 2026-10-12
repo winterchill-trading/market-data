@@ -69,30 +69,29 @@ let run ~normalizers ~data_dir ~out_dir date =
           Deferred.Or_error.ok_unit
         | Some (module N) ->
           let state = N.create () in
-          Deferred.Or_error.List.iter files ~how:`Sequential ~f:(fun file ->
-            let%map.Deferred.Or_error lines = Raw_minute.read file.path in
-            List.iter lines ~f:(function
-              | Disconnect ->
+          Deferred.List.iter files ~how:`Sequential ~f:(fun file ->
+            let file_tag =
+              [%message
+                ""
+                  ~file:
+                    (Option.value
+                       (String.chop_prefix file.path ~prefix:(data_dir ^ "/"))
+                       ~default:file.path
+                     : string)]
+            in
+            Raw_reader.of_files ~on_error:note_error ~stream:file.stream [ file ]
+            |> Pipe.iter_without_pushback ~f:(function
+              | Gap _ ->
                 incr disconnects;
                 N.disconnect state
-              | Frame { recv_ts; payload } ->
+              | Frame { recv_ts; frame; stream = _ } ->
                 incr frames;
-                (match N.frame state ~recv_ts payload with
+                (match N.frame state ~recv_ts frame with
                  | Ok evs ->
                    events := !events + List.length evs;
                    List.iter evs ~f:(Event_log.Writer.append writer)
-                 | Error e ->
-                   note_error
-                     (Error.tag_s
-                        e
-                        ~tag:
-                          [%message
-                            ""
-                              ~file:
-                                (Option.value
-                                   (String.chop_prefix file.path ~prefix:(data_dir ^ "/"))
-                                   ~default:file.path
-                                 : string)])))))
+                 | Error e -> note_error (Error.tag_s e ~tag:file_tag))))
+          >>| Or_error.return)
     in
     let%map () = Event_log.Writer.close writer in
     Or_error.map result ~f:(fun () ->
