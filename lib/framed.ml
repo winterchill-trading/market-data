@@ -186,6 +186,7 @@ module Writer = struct
       }
     in
     Clock_ns.every
+      ~start:(Clock_ns.after flush_interval)
       ~stop:(Ivar.read t.stop)
       ~continue_on_error:false
       flush_interval
