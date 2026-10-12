@@ -24,7 +24,11 @@ let%expect_test "checked-in event log still reads" =
             ~file:(Sample.relative ~dir path : string)
             ~events:(List.length events : int)
             (tail : Framed.Tail.t)
-            ~digest_ok:([%equal: string option] digest (Some Event_log.digest) : bool)])
+            ~digest_ok:
+              (Option.exists
+                 digest
+                 ~f:(List.mem Event_log.compatible_digests ~equal:String.equal)
+               : bool)])
   in
   [%expect
     {|
@@ -156,6 +160,62 @@ let%expect_test "event log from before the venue extension still reads" =
     |}]
 ;;
 
+(* Written by [Event_log.Writer] at the commit before [Funding_v2] was appended to
+   [Event.Stable.V1]: a Hyperliquid funding event whose [exch_ts] copies [recv_ts], one
+   with its own [exch_ts], and a trade. Never regenerate. *)
+let pre_funding_v2_dir = "fixtures/event-log-pre-funding-v2"
+
+let%expect_test "event log from before funding v2 still reads, and rewrites as v2" =
+  let store = Store.create pre_funding_v2_dir in
+  let%bind instruments = Store.instruments store in
+  let day = Date.of_string "2026-01-01" in
+  let%bind files =
+    Deferred.List.concat_map instruments ~how:`Sequential ~f:(fun instrument ->
+      Store.files store Norm instrument [ Trades; Funding ] ~from:day ~to_:day)
+  in
+  let%bind digests = Deferred.List.map files ~how:`Sequential ~f:Framed.read_digest in
+  print_s
+    [%sexp
+      (List.dedup_and_sort digests ~compare:[%compare: string option]
+       : string option list)];
+  [%expect {| ((2f7f1bcba79db3ddd1b04d266342a8af)) |}];
+  let%bind merged = Pipe.to_list (Event_log.read_merged files) in
+  let show events =
+    List.iter events ~f:(fun e ->
+      let wire = Event.to_stable e in
+      print_s
+        [%message
+          ""
+            ~written_as:
+              ((match wire with
+                | Trade _ -> "Trade"
+                | Bbo _ -> "Bbo"
+                | L2 _ -> "L2"
+                | Funding _ -> "Funding"
+                | Funding_v2 _ -> "Funding_v2")
+               : string)
+            ~exch_ts:(Event.exch_ts e : Time_ns.Alternate_sexp.t)
+            ~recv_ts:(Event.recv_ts e : Time_ns.Alternate_sexp.t)])
+  in
+  show merged;
+  [%expect
+    {|
+    ((written_as Funding_v2) (exch_ts "2026-01-01 00:00:00.001Z")
+     (recv_ts "2026-01-01 00:00:00.001Z"))
+    ((written_as Trade) (exch_ts "2026-01-01 00:00:00.005Z")
+     (recv_ts "2026-01-01 00:00:00.006Z"))
+    ((written_as Funding) (exch_ts "2026-01-01 00:00:01Z")
+     (recv_ts "2026-01-01 00:00:01.001Z"))
+    |}];
+  Sample.with_temp_dir (fun dir ->
+    let w = Event_log.Writer.create ~dir () in
+    List.iter merged ~f:(Event_log.Writer.append w);
+    let%bind () = Event_log.Writer.close w in
+    let%map again = Pipe.to_list (Event_log.read_merged (Event_log.Writer.files w)) in
+    printf "same events after a rewrite: %b\n" (List.equal Event.equal merged again);
+    [%expect {| same events after a rewrite: true |}])
+;;
+
 let%expect_test "the digest list starts with the current digest" =
   print_s [%sexp (Event_log.compatible_digests : string list)];
   printf
@@ -163,7 +223,8 @@ let%expect_test "the digest list starts with the current digest" =
     (String.equal (List.hd_exn Event_log.compatible_digests) Event_log.digest);
   [%expect
     {|
-    (2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b)
+    (cdf98830f211bb2d1384927d19dab635 2f7f1bcba79db3ddd1b04d266342a8af
+     4cf56dfbcb69fbab68b38db7a2944d7b)
     head is current: true
     |}];
   return ()
