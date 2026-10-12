@@ -112,6 +112,9 @@ read, so never regenerate them.
 | `Catalog` | per table venues, symbols, first/last day, files and leftover parts |
 | `L2_book` | an L2 book rebuilt from snapshots and deltas |
 | `Event_dump` | one-line rendering of events and books as of a time |
+| `Raw_minute` | market-recorder raw minute files: path parsing, zstd (multi-frame) decoding, `<recv_ts> <frame>` lines |
+| `Normalizer` | `Normalizer.S`, the raw-frame-to-events interface a feed library implements |
+| `Rebuild_norm` | rebuilds a day of `norm/` from raw minute files with the given normalizers; `command` for binaries that link them |
 | `Query_log` | ndjson audit log of SQL run through `query` |
 
 Writers buffer frames and flush every 100 ms, at 1 MiB, on `flush` and on
@@ -233,6 +236,41 @@ non-positive sizes (zero l2 sizes only in snapshots) and crossed bbo
 lists per table the venues, number of symbols, first and last day, file count
 and leftover numbered sink parts. `query` appends `{"time", "user", "sql"}`
 to `<root>/query-log.ndjson` before running (`-no-log` to skip).
+
+### Rebuilding norm/ from raw files
+
+`market-data rebuild-norm -data-dir DIR -out NEW_DIR -date YYYY-MM-DD` reads
+the recorder's `raw/<venue>/<stream>/<symbol>/<YYYY>/<MM>/<DD>/*.ndjson[.zst]`
+files of the day and writes event logs under `NEW_DIR` (which must be new or
+empty, since event logs are appended to). Each `(venue, stream, symbol)` series
+gets a fresh normalizer fed its minutes in order; an empty line calls
+`disconnect`. It prints counts of files, frames, disconnects, events, rejected
+frames (with the first ten errors) and skipped files.
+
+Market-data has no venue code, so this binary has no normalizers and only
+counts files as skipped. A feed library plugs in by implementing
+`Market_data.Normalizer.S` over its own normalizer:
+
+```ocaml
+module Okx_normalizer : Market_data.Normalizer.S = struct
+  type t = Okx_feed.Normalizer.t
+
+  let venue = Market_data.Venue.Okx
+  let create () = Okx_feed.Normalizer.create ()
+
+  let frame t ~recv_ts payload =
+    Or_error.map (Okx_feed.Normalizer.frame t ~recv_ts payload) ~f:(fun o -> o.events)
+  ;;
+
+  let disconnect t = Okx_feed.Normalizer.reset t
+end
+```
+
+and a binary that links the feed libraries mounts
+`Market_data.Rebuild_norm.command [ (module Okx_normalizer); ... ]` (or calls
+`Rebuild_norm.run`). Normalizers that return several outputs (Deribit) or no
+`reset` (Coinbase, Bitget) adapt the same way: concatenate the events, and
+recreate the state on `disconnect` by keeping it in a `ref`.
 
 `Funding.normalized_8h` scales a rate to an 8 hour interval using the
 instrument's catalogued `funding_interval` (Hyperliquid and Kraken Futures fund
