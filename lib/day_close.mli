@@ -3,8 +3,11 @@
 
     For each instrument, [norm/trades], [norm/bbo], [norm/l2] and [norm/funding] of the
     day become the tables of the same name, and the trades also become [candles] (default
-    interval one minute). A table is skipped when its [<date>.parquet] exists and is newer
-    than the source file, so re-running is cheap; when it is rewritten, numbered parts
+    interval one minute). Each written table gets a {!Manifest} next to it,
+    [<date>.manifest.sexp], recording its inputs (size and mtime), output size, row count
+    and {!Manifest.code_version}. A table is skipped when its [<date>.parquet] exists and
+    its manifest matches the current inputs and code version, so re-running is cheap; a
+    table without a manifest is rebuilt. When a table is rewritten, numbered parts
     [<date>.<n>.parquet] left by a restarted sink are removed, since the rebuilt file
     covers the whole day. *)
 
@@ -20,6 +23,35 @@ module Outcome : sig
     | Up_to_date
     | No_source
   [@@deriving sexp_of, compare, equal]
+end
+
+module Manifest : sig
+  (** Changes when the conversion or the event type changes, forcing a rebuild. *)
+  val code_version : string
+
+  module Input : sig
+    type t =
+      { path : string (** relative to the root *)
+      ; size : int
+      ; mtime : float (** seconds since the epoch *)
+      }
+    [@@deriving sexp, compare, equal]
+  end
+
+  type t =
+    { inputs : Input.t list
+    ; output : string (** relative to the root *)
+    ; output_bytes : int
+    ; rows : int
+    ; code_version : string
+    }
+  [@@deriving sexp, compare, equal]
+
+  (** [<dir>/<date>.manifest.sexp] for the table file [<dir>/<date>.parquet]. *)
+  val path : string -> string
+
+  (** The manifest of a table file, if present and readable. *)
+  val load : string -> t option Deferred.t
 end
 
 module Result : sig

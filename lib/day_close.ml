@@ -23,13 +23,68 @@ module Result = struct
   [@@deriving sexp_of]
 end
 
-let mtime path =
-  match%bind Sys.file_exists_exn path with
-  | false -> return None
-  | true ->
-    let%map stat = Unix.stat path in
-    Some stat.mtime
-;;
+module Manifest = struct
+  let code_version = "day-close-1 events-" ^ Event_log.digest
+
+  module Input = struct
+    type t =
+      { path : string
+      ; size : int
+      ; mtime : float
+      }
+    [@@deriving sexp, compare, equal]
+  end
+
+  type t =
+    { inputs : Input.t list
+    ; output : string
+    ; output_bytes : int
+    ; rows : int
+    ; code_version : string
+    }
+  [@@deriving sexp, compare, equal]
+
+  let path target =
+    String.chop_suffix_if_exists target ~suffix:".parquet" ^ ".manifest.sexp"
+  ;;
+
+  let relative ~dir path =
+    Option.value (String.chop_prefix path ~prefix:(dir ^ "/")) ~default:path
+  ;;
+
+  let stat path =
+    match%bind Sys.file_exists_exn path with
+    | false -> return None
+    | true -> Unix.stat path >>| Option.some
+  ;;
+
+  let input ~dir path =
+    match%map stat path with
+    | None -> None
+    | Some (stat : Unix.Stats.t) ->
+      Some
+        { Input.path = relative ~dir path
+        ; size = Int64.to_int_exn stat.size
+        ; mtime = Time_float.Span.to_sec (Time_float.to_span_since_epoch stat.mtime)
+        }
+  ;;
+
+  let load target =
+    let path = path target in
+    match%bind Sys.file_exists_exn path with
+    | false -> return None
+    | true ->
+      (match%map Monitor.try_with (fun () -> Reader.load_sexp_exn path t_of_sexp) with
+       | Ok t -> Some t
+       | Error _ -> None)
+  ;;
+
+  let save target t = Writer.save_sexp ~hum:true (path target) (sexp_of_t t)
+
+  let matches t ~inputs =
+    String.equal t.code_version code_version && [%equal: Input.t list] t.inputs inputs
+  ;;
+end
 
 (* Parts [<date>.<n>.parquet] written by a restarted sink. *)
 let remove_parts target =
@@ -73,63 +128,85 @@ let table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument d
   in
   let source = Event_log.path ~dir instrument source_stream date in
   let target = Parquet_kind.path ~dir instrument kind date in
-  let%bind source_mtime = mtime source in
-  let%bind target_mtime = mtime target in
+  let%bind input = Manifest.input ~dir source in
+  let%bind manifest = Manifest.load target in
+  let%bind target_exists = Sys.file_exists_exn target in
   let%map outcome =
-    match source_mtime, target_mtime with
+    match input, manifest with
     | None, _ -> return Outcome.No_source
-    | Some s, Some t when (not force) && Time_float.( > ) t s -> return Outcome.Up_to_date
-    | Some _, _ ->
-      let convert schema ~f ~finish =
-        convert ?compression ~row_group_rows ~schema ~source ~target ~f ~finish ()
+    | Some input, Some m
+      when (not force) && target_exists && Manifest.matches m ~inputs:[ input ] ->
+      return Outcome.Up_to_date
+    | Some input, _ ->
+      let%bind outcome =
+        let convert schema ~f ~finish =
+          convert ?compression ~row_group_rows ~schema ~source ~target ~f ~finish ()
+        in
+        let no_more () = [] in
+        match kind with
+        | Trades ->
+          convert
+            Parquet_schemas.trade
+            ~f:
+              (List.filter_map ~f:(function
+                | Event.Trade t -> Some t
+                | _ -> None))
+            ~finish:no_more
+        | Bbo ->
+          convert
+            Parquet_schemas.bbo
+            ~f:
+              (List.filter_map ~f:(function
+                | Event.Bbo b -> Some b
+                | _ -> None))
+            ~finish:no_more
+        | Funding ->
+          convert
+            Parquet_schemas.funding
+            ~f:
+              (List.filter_map ~f:(function
+                | Event.Funding x -> Some x
+                | _ -> None))
+            ~finish:no_more
+        | L2 ->
+          let seq = ref 0 in
+          convert
+            Parquet_schemas.l2
+            ~f:
+              (List.concat_map ~f:(function
+                | Event.L2 u ->
+                  let rows = Parquet_schemas.L2_row.of_update ~seq:!seq u in
+                  incr seq;
+                  rows
+                | _ -> []))
+            ~finish:no_more
+        | Candles ->
+          let agg = Candle_agg.create instrument ~interval:candle_interval in
+          convert
+            Parquet_schemas.candle
+            ~f:
+              (List.concat_map ~f:(function
+                | Event.Trade t -> Candle_agg.add agg t
+                | _ -> []))
+            ~finish:(fun () -> Option.to_list (Candle_agg.current agg))
       in
-      let no_more () = [] in
-      (match kind with
-       | Trades ->
-         convert
-           Parquet_schemas.trade
-           ~f:
-             (List.filter_map ~f:(function
-               | Event.Trade t -> Some t
-               | _ -> None))
-           ~finish:no_more
-       | Bbo ->
-         convert
-           Parquet_schemas.bbo
-           ~f:
-             (List.filter_map ~f:(function
-               | Event.Bbo b -> Some b
-               | _ -> None))
-           ~finish:no_more
-       | Funding ->
-         convert
-           Parquet_schemas.funding
-           ~f:
-             (List.filter_map ~f:(function
-               | Event.Funding x -> Some x
-               | _ -> None))
-           ~finish:no_more
-       | L2 ->
-         let seq = ref 0 in
-         convert
-           Parquet_schemas.l2
-           ~f:
-             (List.concat_map ~f:(function
-               | Event.L2 u ->
-                 let rows = Parquet_schemas.L2_row.of_update ~seq:!seq u in
-                 incr seq;
-                 rows
-               | _ -> []))
-           ~finish:no_more
-       | Candles ->
-         let agg = Candle_agg.create instrument ~interval:candle_interval in
-         convert
-           Parquet_schemas.candle
-           ~f:
-             (List.concat_map ~f:(function
-               | Event.Trade t -> Candle_agg.add agg t
-               | _ -> []))
-           ~finish:(fun () -> Option.to_list (Candle_agg.current agg)))
+      let%bind output = Manifest.stat target in
+      let%map () =
+        match outcome with
+        | Written { rows; tail = _ } ->
+          Manifest.save
+            target
+            { inputs = [ input ]
+            ; output = Manifest.relative ~dir target
+            ; output_bytes =
+                Option.value_map output ~default:0 ~f:(fun (s : Unix.Stats.t) ->
+                  Int64.to_int_exn s.size)
+            ; rows
+            ; code_version = Manifest.code_version
+            }
+        | Up_to_date | No_source -> return ()
+      in
+      outcome
   in
   { Result.instrument; kind; path = target; outcome }
 ;;
