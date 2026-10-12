@@ -5,6 +5,6 @@
    (:standard -source-tree-root .))
   (deps
    (source_tree fixtures)))
- (libraries core async market-data)
+ (libraries core async market-data zstd)
  (preprocess
   (pps ppx_jane)))
