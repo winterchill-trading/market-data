@@ -1,0 +1,6 @@
+(library
+ (name market_data)
+ (public_name market-data)
+ (libraries core async bin_prot fixed-decimal exchange-core)
+ (preprocess
+  (pps ppx_jane)))

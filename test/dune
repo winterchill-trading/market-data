@@ -1,0 +1,8 @@
+(library
+ (name market_data_test)
+ (inline_tests
+  (flags
+   (:standard -source-tree-root .)))
+ (libraries core async market-data)
+ (preprocess
+  (pps ppx_jane)))
