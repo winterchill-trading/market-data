@@ -48,6 +48,14 @@ val of_raw
 (** Replays {!Event_log} files, merged by [recv_ts]. *)
 val of_files : ?speed:float -> ?time_source:Time_source.t -> string list -> Feed.t
 
+(** Like {!of_files}, also reporting each file that ends in a truncated or corrupt frame
+    as a {!Gap.Reason.Damaged_log} gap at the file's last event. *)
+val of_files_with_gaps
+  :  ?speed:float
+  -> ?time_source:Time_source.t
+  -> string list
+  -> Feed.With_gaps.t
+
 (** Replays the {!Event_log} files of [streams] (default trades, bbo, l2 and funding) of
     [instruments] for the UTC days [[from, to_]] under [dir]. Fails, naming the range,
     when no such file exists, rather than returning a feed that ends at once.

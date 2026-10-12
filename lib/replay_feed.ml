@@ -86,6 +86,42 @@ let of_files ?speed ?time_source files =
   of_events ?speed ?time_source (Event_log.read_merged files)
 ;;
 
+(* The events of one log file, then a gap at its last event if the file is damaged. *)
+let file_items path =
+  let events, tail = Event_log.read_file path in
+  Pipe.create_reader ~close_on_exception:true (fun w ->
+    let last = ref None in
+    let%bind () =
+      Pipe.iter events ~f:(fun e ->
+        last := Some e;
+        Pipe.write_if_open w (`Event e))
+    in
+    match%map tail with
+    | Clean -> ()
+    | Truncated _ | Corrupt _ ->
+      Option.iter !last ~f:(fun e ->
+        let instrument = Event.instrument e in
+        Pipe.write_without_pushback_if_open
+          w
+          (`Gap
+            { Gap.recv_ts = Event.recv_ts e
+            ; venue = instrument.venue
+            ; instrument = Some instrument
+            ; stream = Some (Event.stream e)
+            ; reason = Damaged_log
+            })))
+;;
+
+let of_files_with_gaps ?speed ?time_source files =
+  let item_ts = function
+    | `Event e -> Event.recv_ts e
+    | `Gap (g : Gap.t) -> g.recv_ts
+  in
+  Merge.sorted (List.map files ~f:file_items) ~compare:(fun a b ->
+    Time_ns.compare (item_ts a) (item_ts b))
+  |> of_items ?speed ?time_source
+;;
+
 (* Per instrument: where its replay starts, and the snapshot to deliver first. *)
 let starts ~dir ~streams instruments start_at =
   Deferred.List.map instruments ~how:`Sequential ~f:(fun instrument ->
