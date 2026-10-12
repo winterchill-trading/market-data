@@ -77,10 +77,29 @@ Adding a digest (Stable discipline):
 4. Update the pinned digests in `test/test_event_log.ml` and
    `test/test_fixtures.ml`.
 
-`test/fixtures/event-log-v1` holds files written by the code of that time, and
+`test/fixtures/event-log-v1` holds files written by the code of that time,
 `test/fixtures/event-log-pre-venues` files written before the venue list grew
-from three to eleven entries (digest `4cf56dfb...`); tests check they still
-read, so never regenerate them.
+from three to eleven entries (digest `4cf56dfb...`), and
+`test/fixtures/event-log-pre-funding-v2` files written before `Funding_v2`
+(digest `2f7f1bcb...`); tests check they still read, so never regenerate them.
+
+### Funding without an exchange timestamp
+
+Some venues (Hyperliquid) send funding with no exchange time, and their
+normalizers copy `recv_ts` into `exch_ts`. `Funding.Stable.V2` makes that
+explicit with `exch_ts : Time_ns.t option`; `Stable.V2.of_v1`/`to_v1` convert
+(a missing `exch_ts` becomes `recv_ts`). The in-memory `Funding.t` and
+`Event.t` are unchanged, so feeds keep building them as before.
+
+On disk, `Event.Stable.V1` gained a fifth constructor, `Funding_v2`, appended
+after the others (digest `cdf98830...`). The writer encodes a funding event
+whose `exch_ts` equals its `recv_ts` (`Funding.exch_ts_opt` is `None`) as
+`Funding_v2` with no `exch_ts`, and every other event as before, byte for byte
+and without allocating. Readers turn `Funding_v2` back into `Funding` with
+`exch_ts = recv_ts`, so `Event.t` round-trips exactly; `Event.to_stable` shows
+which constructor a value is written as. The Parquet `funding` table still has
+a required `exch_ts` column (the Parquet writer has no optional columns), so it
+holds `recv_ts` for such rows.
 
 ## Modules
 
