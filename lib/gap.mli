@@ -1,5 +1,5 @@
-(** A break in a feed: data between the previous event and the next one may be missing,
-    so books and other derived state must be rebuilt from the next snapshot. *)
+(** A break in a feed: data between the previous event and the next one may be missing, so
+    books and other derived state must be rebuilt from the next snapshot. *)
 
 open! Core
 module Md_stream := Stream
