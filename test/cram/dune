@@ -1,0 +1,5 @@
+(cram
+ (deps
+  %{bin:market-data}
+  ../../scripts/daycheck-diff.sh
+  (source_tree ../fixtures)))
