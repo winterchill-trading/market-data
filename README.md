@@ -149,6 +149,16 @@ There are two ways to fill `parquet/`:
   bytes, output bytes, elapsed time and the parts it replaced. The `_manifest`
   directory is skipped by pyarrow and Spark dataset readers.
 
+  `-jobs N` converts up to N tables of the process at once. Parquet encoding
+  runs in `In_thread`, but OCaml threads share one domain, so this mostly
+  overlaps I/O. `-processes N` converts up to N instruments at once, each in a
+  child `day-close` process, and prints their output in instrument order; this
+  is the flag that uses several cores. On a synthetic day of four instruments
+  (3M events, 290 MB of `norm/`, M-series Mac): 6.0 s sequential, 5.4 s with
+  `-jobs 2`, 2.9 s with `-processes 2`, 1.5 s with `-processes 4`. Handing rows
+  to the Parquet thread in 64k-row batches instead of one call per pipe chunk
+  took the sequential run from 23.6 s to 6.0 s.
+
 Files are written as `<name>.tmp` and renamed when complete, so readers
 globbing `*.parquet` never see a partial file.
 
