@@ -12,7 +12,7 @@ re-exported here with stable bin_io encodings.
 
 ```
 <root>/
-  <venue>/                      hyperliquid | binance | bybit
+  <venue>/                      hyperliquid | binance | bybit | okx | ...
     <symbol>/                   venue's own name: ETH, BTCUSDT, ...
       raw/                      Frame_log: messages as received
         trades/2026-01-01.binlog
@@ -24,6 +24,7 @@ re-exported here with stable bin_io encodings.
         trades/2026-01-01.bin
         bbo/...
         l2/...
+        l2/_snapshots/2026-01-01.bin   Snapshot_index: periodic full books (optional)
         funding/...
       parquet/                  Parquet tables for research (DuckDB, pandas, ...)
         trades/2026-01-01.parquet
