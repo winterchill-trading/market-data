@@ -113,3 +113,36 @@ let%expect_test "candle" =
     bin_io: 69 bytes, round trip true
     |}]
 ;;
+
+let%expect_test "funding normalized to 8 hours" =
+  let funding venue symbol ~rate : Funding.t =
+    { (Sample.funding ~ms:0 ~rate) with instrument = Instrument.create venue symbol }
+  in
+  List.iter
+    [ funding Hyperliquid "BTC" ~rate:0.0000125
+    ; funding Binance "BTCUSDT" ~rate:0.0001
+    ; funding Kraken "PF_XBTUSD" ~rate:0.00002
+    ; funding Coinbase "BTC-USD" ~rate:0.0001
+    ; funding Okx "UNKNOWN-SWAP" ~rate:0.0001
+    ]
+    ~f:(fun f ->
+      printf
+        !"%{Instrument} %{sexp: float option}\n"
+        f.instrument
+        (Funding.normalized_8h f));
+  print_s
+    [%sexp
+      (Funding.normalized_8h
+         ~funding_interval:(Time_ns.Span.of_hr 4.)
+         (funding Okx "UNKNOWN-SWAP" ~rate:0.0001)
+       : float option)];
+  [%expect
+    {|
+    hyperliquid:BTC (0.0001)
+    binance:BTCUSDT (0.0001)
+    kraken:PF_XBTUSD (0.00016)
+    coinbase:BTC-USD ()
+    okx:UNKNOWN-SWAP ()
+    (0.0002)
+    |}]
+;;
