@@ -341,6 +341,10 @@ The tests read the Parquet files back with the `duckdb` CLI, which must be on
 
 CI pins `fixed-decimal`, `exchange-core` and `parquet` from GitHub.
 
+CI installs the pinned siblings and the opam dependencies through the shared
+[ox-setup](https://github.com/winterchill-trading/infra/blob/main/docs/ci.md) action, which
+caches the built opam switch between runs.
+
 ## Live feeds
 
 `Feed.S` is implemented as `Live_feed` in `hl-client`, `binance-client` and
