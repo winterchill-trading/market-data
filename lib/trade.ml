@@ -11,7 +11,7 @@ module Stable = struct
       ; side : Side.Stable.V1.t
       ; trade_id : string
       }
-    [@@deriving bin_io, sexp, compare, equal, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
   end
 end
 

@@ -13,7 +13,7 @@ module Stable : sig
       ; ask_price : Price.Stable.V1.t
       ; ask_size : Size.Stable.V1.t
       }
-    [@@deriving bin_io, sexp, compare, equal, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
   end
 end
 

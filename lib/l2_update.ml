@@ -7,7 +7,7 @@ module Level = struct
         { price : Price.Stable.V1.t
         ; size : Size.Stable.V1.t
         }
-      [@@deriving bin_io, sexp, compare, equal, fields]
+      [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
     end
   end
 
@@ -20,7 +20,7 @@ module Kind = struct
       type t =
         | Snapshot
         | Delta
-      [@@deriving bin_io, sexp, compare, equal, enumerate]
+      [@@deriving bin_io, sexp, compare, equal, quickcheck, enumerate]
     end
   end
 
@@ -37,7 +37,7 @@ module Stable = struct
       ; bids : Level.Stable.V1.t list
       ; asks : Level.Stable.V1.t list
       }
-    [@@deriving bin_io, sexp, compare, equal, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
   end
 end
 

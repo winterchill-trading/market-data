@@ -10,7 +10,7 @@ module Level : sig
         { price : Price.Stable.V1.t
         ; size : Size.Stable.V1.t
         }
-      [@@deriving bin_io, sexp, compare, equal, fields]
+      [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
     end
   end
 
@@ -27,7 +27,7 @@ module Kind : sig
       type t =
         | Snapshot
         | Delta
-      [@@deriving bin_io, sexp, compare, equal, enumerate]
+      [@@deriving bin_io, sexp, compare, equal, quickcheck, enumerate]
     end
   end
 
@@ -47,7 +47,7 @@ module Stable : sig
       ; bids : Level.Stable.V1.t list (** best (highest) first in a snapshot *)
       ; asks : Level.Stable.V1.t list (** best (lowest) first in a snapshot *)
       }
-    [@@deriving bin_io, sexp, compare, equal, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
   end
 end
 

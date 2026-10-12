@@ -13,7 +13,7 @@ module Stable : sig
       ; mark_price : Price.Stable.V1.t
       ; index_price : Price.Stable.V1.t
       }
-    [@@deriving bin_io, sexp, compare, equal, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
   end
 end
 

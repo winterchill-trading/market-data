@@ -7,7 +7,7 @@ module Stable = struct
       | Bbo of Bbo.Stable.V1.t
       | L2 of L2_update.Stable.V1.t
       | Funding of Funding.Stable.V1.t
-    [@@deriving bin_io, sexp, compare, equal]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck]
   end
 end
 

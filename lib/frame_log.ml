@@ -8,7 +8,7 @@ module Record = struct
         ; stream_id : int
         ; payload : string
         }
-      [@@deriving bin_io, sexp, compare, equal, fields]
+      [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
     end
   end
 

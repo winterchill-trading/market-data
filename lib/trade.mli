@@ -13,7 +13,7 @@ module Stable : sig
       ; side : Side.Stable.V1.t (** taker (aggressor) side *)
       ; trade_id : string (** venue trade id; opaque *)
       }
-    [@@deriving bin_io, sexp, compare, equal, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
   end
 end
 

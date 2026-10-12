@@ -15,7 +15,7 @@ module Stable : sig
       ; volume : Size.Stable.V1.t (** sum of trade sizes *)
       ; trade_count : int
       }
-    [@@deriving bin_io, sexp, compare, equal, fields]
+    [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
   end
 end
 

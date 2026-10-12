@@ -16,7 +16,7 @@ module Record : sig
         (** identifies the connection or subscription the payload arrived on *)
         ; payload : string (** the message bytes, unparsed *)
         }
-      [@@deriving bin_io, sexp, compare, equal, fields]
+      [@@deriving bin_io, sexp, compare, equal, quickcheck, fields]
     end
   end
 
