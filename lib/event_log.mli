@@ -1,9 +1,16 @@
 (** Append-only log of normalized {!Event.t}s, framed like {!Frame_log}.
 
     One file per instrument, stream and UTC day of [recv_ts]:
-    [<dir>/<venue>/<symbol>/norm/<stream>/<YYYY-MM-DD>.bin]. *)
+    [<dir>/<venue>/<symbol>/norm/<stream>/<YYYY-MM-DD>.bin].
+
+    Each new file starts with a {!Framed.File_header} carrying {!digest}. Readers raise on
+    a file whose header names another digest, rather than decoding garbage; files from
+    before headers existed have none and are read unchecked. *)
 
 open! Core
+
+(** Hex [bin_shape] digest of {!Event.Stable.V1.t}. *)
+val digest : string
 
 (** [<dir>/<venue>/<symbol>/norm/<stream>/<YYYY-MM-DD>.bin] *)
 val path : dir:string -> Instrument.t -> Stream.t -> Date.t -> string
@@ -29,7 +36,8 @@ module Writer : sig
   val files : t -> string list
 end
 
-(** Events of one file in file order, stopping at a damaged tail. *)
+(** Events of one file in file order, stopping at a damaged tail. Raises on a digest
+    mismatch. *)
 val read_file : string -> Event.t Async.Pipe.Reader.t * Framed.Tail.t Async.Deferred.t
 
 val load_file : string -> (Event.t list * Framed.Tail.t) Async.Deferred.t

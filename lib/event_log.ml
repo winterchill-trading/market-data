@@ -4,6 +4,8 @@ let path ~dir instrument stream date =
   Store.path (Store.create dir) Norm instrument stream date
 ;;
 
+let digest = Bin_prot.Shape.eval_to_digest_string Event.Stable.V1.bin_shape_t
+
 module Key = struct
   type t = Instrument.t * Stream.t [@@deriving compare, equal, hash, sexp_of]
 end
@@ -25,6 +27,7 @@ module Writer = struct
       Framed.Writer.create
         ?flush_interval:t.flush_interval
         ?flush_bytes:t.flush_bytes
+        ~digest
         Event.bin_writer_t
         ~path_for_date:(path ~dir:t.dir instrument stream)
         ())
@@ -48,8 +51,8 @@ module Writer = struct
   ;;
 end
 
-let read_file path = Framed.read_file Event.bin_reader_t path
-let load_file path = Framed.load_file Event.bin_reader_t path
+let read_file path = Framed.read_file ~digest Event.bin_reader_t path
+let load_file path = Framed.load_file ~digest Event.bin_reader_t path
 
 let read_merged paths =
   Merge.sorted

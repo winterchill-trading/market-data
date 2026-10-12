@@ -69,3 +69,93 @@ let%expect_test "truncated event file" =
       (Truncated (bytes 50))
       |}])
 ;;
+
+let print_failure ~dir f =
+  match%map Monitor.try_with ~extract_exn:true f with
+  | Ok _ -> print_endline "no error"
+  | Error exn ->
+    Exn.to_string_mach exn
+    |> String.substr_replace_all ~pattern:dir ~with_:"$DIR"
+    |> print_endline
+;;
+
+let%expect_test "files start with the event digest" =
+  Sample.with_temp_dir (fun dir ->
+    let w = Event_log.Writer.create ~dir () in
+    List.iter events ~f:(Event_log.Writer.append w);
+    let%bind () = Event_log.Writer.close w in
+    let path = Event_log.path ~dir Sample.btc Trades (Date.of_string "2026-01-01") in
+    let%bind digest = Framed.read_digest path in
+    let%bind prefix =
+      Reader.with_file path ~f:(fun r -> Reader.peek r ~len:Framed.File_header.length)
+    in
+    print_s [%sexp (prefix : string Reader.Read_result.t)];
+    printf
+      "matches Event_log.digest: %b\n"
+      ([%equal: string option] digest (Some Event_log.digest));
+    [%expect
+      {|
+      (Ok MDFRAME12f7f1bcba79db3ddd1b04d266342a8af)
+      matches Event_log.digest: true
+      |}];
+    return ())
+;;
+
+let%expect_test "a file of another record type fails clearly" =
+  Sample.with_temp_dir (fun dir ->
+    let path = Event_log.path ~dir Sample.btc Trades (Date.of_string "2026-01-01") in
+    let other_digest =
+      Bin_prot.Shape.eval_to_digest_string Frame_log.Record.Stable.V1.bin_shape_t
+    in
+    let w =
+      Framed.Writer.create
+        ~digest:other_digest
+        Frame_log.Record.bin_writer_t
+        ~path_for_date:(fun _ -> path)
+        ()
+    in
+    Framed.Writer.append
+      w
+      { recv_ts = Sample.ts 0; stream_id = 1; payload = "{}" }
+      ~time:(Sample.ts 0);
+    let%bind () = Framed.Writer.close w in
+    let%bind () = print_failure ~dir (fun () -> Event_log.load_file path) in
+    [%expect
+      {| ("bin_shape digest mismatch: the file was written with a different record type"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(expected 2f7f1bcba79db3ddd1b04d266342a8af)(found e49e60d7b3fcee2c9c4c276d753deffc)) |}];
+    let%bind () =
+      print_failure ~dir (fun () -> Pipe.to_list (Event_log.read_merged [ path ]))
+    in
+    [%expect
+      {| ("bin_shape digest mismatch: the file was written with a different record type"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(expected 2f7f1bcba79db3ddd1b04d266342a8af)(found e49e60d7b3fcee2c9c4c276d753deffc)) |}];
+    let w = Event_log.Writer.create ~dir () in
+    let%bind () =
+      print_failure ~dir (fun () ->
+        Event_log.Writer.append w (List.hd_exn events);
+        Event_log.Writer.close w)
+    in
+    [%expect
+      {| ("bin_shape digest mismatch: the file was written with a different record type"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(expected 2f7f1bcba79db3ddd1b04d266342a8af)(found e49e60d7b3fcee2c9c4c276d753deffc)) |}];
+    return ())
+;;
+
+let%expect_test "files without a header still read" =
+  Sample.with_temp_dir (fun dir ->
+    let path = Event_log.path ~dir Sample.btc Trades (Date.of_string "2026-01-01") in
+    let w = Framed.Writer.create Event.bin_writer_t ~path_for_date:(fun _ -> path) () in
+    List.iter events ~f:(fun e -> Framed.Writer.append w e ~time:(Sample.ts 0));
+    let%bind () = Framed.Writer.close w in
+    let%bind digest = Framed.read_digest path in
+    let%bind loaded, tail = Event_log.load_file path in
+    print_s
+      [%message
+        (digest : string option) ~events:(List.length loaded : int) (tail : Framed.Tail.t)];
+    [%expect {| ((digest ()) (events 6) (tail Clean)) |}];
+    (* A new writer continues the old file without adding a header in the middle. *)
+    let w = Event_log.Writer.create ~dir () in
+    Event_log.Writer.append w (List.hd_exn events);
+    let%bind () = Event_log.Writer.close w in
+    let%bind loaded, tail = Event_log.load_file path in
+    print_s [%message "" ~events:(List.length loaded : int) (tail : Framed.Tail.t)];
+    [%expect {| ((events 7) (tail Clean)) |}];
+    return ())
+;;
