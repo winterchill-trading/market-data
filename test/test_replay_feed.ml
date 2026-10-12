@@ -99,3 +99,34 @@ let%expect_test "close stops a replay waiting for its next event" =
   print_s [%message (got_first : bool) ~rest:(List.length rest : int)];
   [%expect {| ((got_first true) (rest 0)) |}]
 ;;
+
+let%expect_test "a date range without files is an error" =
+  Sample.with_temp_dir (fun dir ->
+    let w = Event_log.Writer.create ~dir () in
+    List.iter events ~f:(Event_log.Writer.append w);
+    let%bind () = Event_log.Writer.close w in
+    let range from to_ =
+      Replay_feed.of_range
+        ~speed:0.
+        ~dir
+        [ Sample.btc ]
+        ~from:(Date.of_string from)
+        ~to_:(Date.of_string to_)
+    in
+    let%bind () =
+      match%bind range "2026-01-01" "2026-01-03" with
+      | Error e -> return (print_s [%sexp (e : Error.t)])
+      | Ok feed -> drain_all feed
+    in
+    [%expect {| ((trades (100 100.1)) (bbo 1) (l2 0) (funding (0.0001))) |}];
+    let%map () =
+      match%map range "2026-02-01" "2026-02-03" with
+      | Ok _ -> print_endline "unexpected feed"
+      | Error e ->
+        Error.to_string_mach e
+        |> String.substr_replace_all ~pattern:dir ~with_:"$DIR"
+        |> print_endline
+    in
+    [%expect
+      {| ("Replay_feed: no event log files in the date range"(dir $DIR)(instruments(((venue Binance)(symbol BTCUSDT))))(streams(Trades Bbo L2 Funding))(from 2026-02-01)(to_ 2026-02-03)) |}])
+;;
