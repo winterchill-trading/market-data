@@ -52,3 +52,21 @@ let%expect_test "every stable type survives a bin_io round trip" =
     frame log record
     |}]
 ;;
+
+let%expect_test "Event.t writes the bytes of the stable constructor it maps to" =
+  let event_gen =
+    Quickcheck.Generator.map Event.Stable.V1.quickcheck_generator ~f:Event.of_stable
+  in
+  Quickcheck.test ~trials:1000 event_gen ~sexp_of:Event.sexp_of_t ~f:(fun e ->
+    let bytes = Binable.to_string (module Event) e in
+    let stable = Binable.to_string (module Event.Stable.V1) (Event.to_stable e) in
+    if not (String.equal bytes stable)
+    then raise_s [%message "bytes differ" (e : Event.t)];
+    let e' = Binable.of_string (module Event) bytes in
+    if Event.compare e e' <> 0
+    then raise_s [%message "Event.t round trip failed" (e : Event.t) (e' : Event.t)];
+    let e'' = Event.of_stable (Event.to_stable e) in
+    if Event.compare e e'' <> 0
+    then raise_s [%message "of_stable (to_stable e) <> e" (e : Event.t)]);
+  [%expect {| |}]
+;;

@@ -11,7 +11,7 @@ let print_event e =
 
 let%expect_test "event shape" =
   print_endline [%bin_digest: Event.Stable.V1.t];
-  [%expect {| 2f7f1bcba79db3ddd1b04d266342a8af |}];
+  [%expect {| cdf98830f211bb2d1384927d19dab635 |}];
   return ()
 ;;
 
@@ -95,7 +95,7 @@ let%expect_test "files start with the event digest" =
       ([%equal: string option] digest (Some Event_log.digest));
     [%expect
       {|
-      (Ok MDFRAME12f7f1bcba79db3ddd1b04d266342a8af)
+      (Ok MDFRAME1cdf98830f211bb2d1384927d19dab635)
       matches Event_log.digest: true
       |}];
     return ())
@@ -121,12 +121,12 @@ let%expect_test "a file of another record type fails clearly" =
     let%bind () = Framed.Writer.close w in
     let%bind () = print_failure ~dir (fun () -> Event_log.load_file path) in
     [%expect
-      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
+      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(cdf98830f211bb2d1384927d19dab635 2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
     let%bind () =
       print_failure ~dir (fun () -> Pipe.to_list (Event_log.read_merged [ path ]))
     in
     [%expect
-      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
+      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(cdf98830f211bb2d1384927d19dab635 2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
     let w = Event_log.Writer.create ~dir () in
     let%bind () =
       print_failure ~dir (fun () ->
@@ -134,7 +134,7 @@ let%expect_test "a file of another record type fails clearly" =
         Event_log.Writer.close w)
     in
     [%expect
-      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
+      {| ("bin_shape digest mismatch: the file was written with a record type not known to be compatible"(path $DIR/binance/BTCUSDT/norm/trades/2026-01-01.bin)(found e49e60d7b3fcee2c9c4c276d753deffc)(accepted(cdf98830f211bb2d1384927d19dab635 2f7f1bcba79db3ddd1b04d266342a8af 4cf56dfbcb69fbab68b38db7a2944d7b))) |}];
     return ())
 ;;
 
