@@ -253,16 +253,21 @@ let run
   ?(row_group_rows = 1_048_576)
   ?(candle_interval = Time_ns.Span.minute)
   ?(force = false)
+  ?(jobs = 1)
   ?instruments
   ~dir
   date
   =
+  if jobs < 1 then raise_s [%message "Day_close: jobs must be at least 1" (jobs : int)];
   let%bind instruments =
     match instruments with
     | Some l -> return l
     | None -> Store.instruments (Store.create dir)
   in
-  Deferred.List.concat_map instruments ~how:`Sequential ~f:(fun instrument ->
-    Deferred.List.map Parquet_kind.all ~how:`Sequential ~f:(fun kind ->
-      table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument date kind))
+  let tables =
+    List.concat_map instruments ~f:(fun instrument ->
+      List.map Parquet_kind.all ~f:(fun kind -> instrument, kind))
+  in
+  Deferred.List.map tables ~how:(`Max_concurrent_jobs jobs) ~f:(fun (instrument, kind) ->
+    table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument date kind)
 ;;

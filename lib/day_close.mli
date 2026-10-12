@@ -80,12 +80,15 @@ end
 
 (** [instruments] defaults to every instrument under [dir]. [force] rewrites tables that
     are up to date. [row_group_rows] defaults to 1_048_576, [candle_interval] to one
-    minute. *)
+    minute. Up to [jobs] tables (default 1) are converted at once; Parquet encoding and
+    writes run in [In_thread], so they overlap. Results are in instrument then table order
+    whatever [jobs] is. *)
 val run
   :  ?compression:[ `None | `Zstd ]
   -> ?row_group_rows:int
   -> ?candle_interval:Time_ns.Span.t
   -> ?force:bool
+  -> ?jobs:int
   -> ?instruments:Instrument.t list
   -> dir:string
   -> Date.t
