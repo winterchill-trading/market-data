@@ -82,3 +82,20 @@ let%expect_test "crash safety: a truncated tail is dropped" =
       |}];
     return ())
 ;;
+
+let%expect_test "crash safety: reopening repairs the tail before appending" =
+  Sample.with_temp_dir (fun dir ->
+    let%bind path = write_three dir in
+    let%bind size = file_size path in
+    let%bind () = Unix.truncate path ~len:(Int64.of_int (size - 5)) in
+    let w = Frame_log.Writer.create ~dir Sample.btc Bbo in
+    Frame_log.Writer.write w ~recv_ts:(Sample.ts 4) ~stream_id:1 "after-restart";
+    let%bind () = Frame_log.Writer.close w in
+    let%map records, tail = Frame_log.load_file path in
+    print_s
+      [%message
+        ""
+          ~payloads:(List.map records ~f:Frame_log.Record.payload : string list)
+          (tail : Framed.Tail.t)];
+    [%expect {| ((payloads (payload-1 payload-2 after-restart)) (tail Clean)) |}])
+;;
