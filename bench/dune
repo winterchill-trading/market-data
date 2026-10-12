@@ -1,0 +1,5 @@
+(executable
+ (name raw_reader_bench)
+ (libraries core core_unix core_unix.command_unix async market-data zstd)
+ (preprocess
+  (pps ppx_jane)))
