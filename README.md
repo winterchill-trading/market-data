@@ -58,12 +58,28 @@ report it, and a writer reopening the file cuts it off before appending.
 header: the magic `MDFRAME1` and the 32-character hex `bin_shape` digest of
 `Event.Stable.V1.t` (`Event_log.digest`). Read as a frame size the magic is far
 above the 256 MiB limit, so headerless files from before stay readable and are
-read unchecked. Readers raise on a file whose digest differs, rather than
-decoding garbage, and a writer refuses to append to one. Any change to the
-event type's shape, including a new `Venue` constructor, changes the digest;
-such a change needs a `Stable.V2` and a reader for the old files.
-`test/fixtures/event-log-v1` holds files written by the code of that time; a
-test checks they still read, so never regenerate them.
+read unchecked. Readers accept any digest in `Event_log.compatible_digests`
+and raise, listing the accepted ones, on any other, rather than decoding
+garbage; a writer refuses to append to such a file. Any change to the event
+type's shape, including a new `Venue` constructor, changes the digest.
+
+Adding a digest (Stable discipline):
+
+1. Only make changes that keep old bytes decoding the same, such as appending
+   a variant constructor at the end. Anything else needs a `Stable.V2` and a
+   reader for the old files, not a list entry.
+2. Put the new digest at the head of `compatible_digests` with a comment naming
+   the change. The list is append-only: never remove or reorder entries.
+3. Check in a fixture written by the previous code: `git worktree add` the
+   commit before the change in a scratch directory, run `Event_log.Writer`
+   there, and copy the files under `test/fixtures/`. Add a test that reads it.
+4. Update the pinned digests in `test/test_event_log.ml` and
+   `test/test_fixtures.ml`.
+
+`test/fixtures/event-log-v1` holds files written by the code of that time, and
+`test/fixtures/event-log-pre-venues` files written before the venue list grew
+from three to eleven entries (digest `4cf56dfb...`); tests check they still
+read, so never regenerate them.
 
 ## Modules
 
