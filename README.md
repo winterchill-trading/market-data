@@ -237,6 +237,19 @@ lists per table the venues, number of symbols, first and last day, file count
 and leftover numbered sink parts. `query` appends `{"time", "user", "sql"}`
 to `<root>/query-log.ndjson` before running (`-no-log` to skip).
 
+`Funding.normalized_8h` scales a rate to an 8 hour interval using the
+instrument's catalogued `funding_interval` (Hyperliquid and Kraken Futures fund
+hourly, the others every 8 hours), so venues compare directly.
+
+`Replay_feed.of_range` replays the files of instruments and a date range and
+fails, naming the range, when there are none. With `~start_at` it starts each
+instrument at its last `Snapshot_index` entry at or before that time: the book
+arrives first as an L2 snapshot, then the events from the entry's minute on,
+so a replay can begin mid-day without reading from midnight. Snapshots are
+written only by an `Event_log.Writer` created with `~snapshot_interval`
+(e.g. one minute); the entry at `at` holds every L2 update received before
+`at`.
+
 ### Rebuilding norm/ from raw files
 
 `market-data rebuild-norm -data-dir DIR -out NEW_DIR -date YYYY-MM-DD` reads
@@ -271,19 +284,6 @@ and a binary that links the feed libraries mounts
 `Rebuild_norm.run`). Normalizers that return several outputs (Deribit) or no
 `reset` (Coinbase, Bitget) adapt the same way: concatenate the events, and
 recreate the state on `disconnect` by keeping it in a `ref`.
-
-`Funding.normalized_8h` scales a rate to an 8 hour interval using the
-instrument's catalogued `funding_interval` (Hyperliquid and Kraken Futures fund
-hourly, the others every 8 hours), so venues compare directly.
-
-`Replay_feed.of_range` replays the files of instruments and a date range and
-fails, naming the range, when there are none. With `~start_at` it starts each
-instrument at its last `Snapshot_index` entry at or before that time: the book
-arrives first as an L2 snapshot, then the events from the entry's minute on,
-so a replay can begin mid-day without reading from midnight. Snapshots are
-written only by an `Event_log.Writer` created with `~snapshot_interval`
-(e.g. one minute); the entry at `at` holds every L2 update received before
-`at`.
 
 ### From Python
 
