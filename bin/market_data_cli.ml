@@ -185,6 +185,7 @@ let () =
     ; "query", query
     ; "dump", dump
     ; "check", check
+    ; "catalog", catalog
     ]
   |> Command_unix.run
 ;;
