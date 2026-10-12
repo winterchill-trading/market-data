@@ -57,8 +57,9 @@ let views =
     ~summary:"Print DuckDB CREATE VIEW statements for every parquet table"
     (let%map_open.Command dir = dir_flag in
      fun () ->
+       let%map units_csv = Parquet_views.units_csv ~dir in
        print_endline (Parquet_views.sql ~dir ());
-       return ())
+       print_endline (Parquet_views.derived_sql ?units_csv Parquet_kind.all))
 ;;
 
 let time_arg = Command.Arg_type.create Time_ns.of_string_with_utc_offset
