@@ -112,3 +112,43 @@ let%expect_test "a feed without gaps closes its gaps pipe when the feed ends" =
   print_s [%sexp (List.length gaps : int)];
   [%expect {| 0 |}]
 ;;
+
+let%expect_test "a truncated event log ends in a damaged_log gap" =
+  Sample.with_temp_dir (fun dir ->
+    let w = Event_log.Writer.create ~dir () in
+    List.iter
+      [ Event.Trade (Sample.trade ~ms:0 ~price:"100" ~size:"1" ())
+      ; Trade (Sample.trade ~ms:1_000 ~price:"101" ~size:"1" ())
+      ; Bbo (Sample.bbo ~ms:500 ~bid:"99" ~ask:"100")
+      ]
+      ~f:(Event_log.Writer.append w);
+    let%bind () = Event_log.Writer.close w in
+    let files = Event_log.Writer.files w in
+    let trades_file =
+      List.find_exn files ~f:(String.is_substring ~substring:"/trades/")
+    in
+    (* Half a frame left by a crash mid-write. *)
+    let%bind () =
+      Writer.with_file ~append:true trades_file ~f:(fun w ->
+        Writer.write w "\005\000\000\000ab";
+        return ())
+    in
+    let (module F) = Replay_feed.of_files_with_gaps ~speed:0. files in
+    let%map trades = Pipe.to_list F.trades
+    and bbo = Pipe.to_list F.bbo
+    and gaps = Pipe.to_list F.gaps in
+    print_s
+      [%message
+        ""
+          ~trades:(List.length trades : int)
+          ~bbo:(List.length bbo : int)
+          (gaps : Gap.t list)];
+    [%expect
+      {|
+      ((trades 2) (bbo 1)
+       (gaps
+        (((recv_ts "2026-01-01 00:00:01.001Z") (venue Binance)
+          (instrument (((venue Binance) (symbol BTCUSDT)))) (stream (Trades))
+          (reason Damaged_log)))))
+      |}])
+;;
