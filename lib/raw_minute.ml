@@ -93,19 +93,20 @@ let decompress data =
   go (Int.max 4096 (Int.max first (4 * String.length data)))
 ;;
 
+let read_lines_blocking path =
+  let data = In_channel.read_all path in
+  let text = if String.is_suffix path ~suffix:".zst" then decompress data else data in
+  let lines = String.split text ~on:'\n' in
+  (* A final newline leaves an empty last element that is not a disconnect. *)
+  match List.last lines with
+  | Some "" -> List.drop_last_exn lines
+  | _ -> lines
+;;
+
 let read path =
   In_thread.run (fun () ->
     Or_error.try_with_join (fun () ->
-      let data = In_channel.read_all path in
-      let text = if String.is_suffix path ~suffix:".zst" then decompress data else data in
-      let lines = String.split text ~on:'\n' in
-      (* A final newline leaves an empty last element that is not a disconnect. *)
-      let lines =
-        match List.last lines with
-        | Some "" -> List.drop_last_exn lines
-        | _ -> lines
-      in
-      List.map lines ~f:Line.parse |> Or_error.combine_errors))
+      read_lines_blocking path |> List.map ~f:Line.parse |> Or_error.combine_errors))
   >>| Or_error.tag ~tag:path
 ;;
 

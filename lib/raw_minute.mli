@@ -43,6 +43,10 @@ end
 (** Decompresses a zstd stream of one or more concatenated frames. *)
 val decompress : string -> string
 
+(** The raw lines of a minute file, without newlines, decompressing [.zst] files on the
+    calling thread; raises on I/O and zstd errors. *)
+val read_lines_blocking : string -> string list
+
 (** The lines of a minute file, decompressing [.zst] files off the scheduler thread. A
     trailing line without a newline (a file still being written) is kept. *)
 val read : string -> Line.t list Or_error.t Deferred.t

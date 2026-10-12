@@ -98,18 +98,6 @@ let minute_files ~data_dir ~venue ~stream ~symbol ~start ~stop =
 
 let default_on_error e = Log.Global.error_s (Error.sexp_of_t e)
 
-(* Runs in a thread: read, decompress and split one file. *)
-let load (file : Raw_minute.File.t) =
-  Or_error.try_with (fun () ->
-    let data = In_channel.read_all file.path in
-    let text = if file.compressed then Raw_minute.decompress data else data in
-    let lines = String.split text ~on:'\n' in
-    (* A final newline leaves an empty last element that is not a disconnect. *)
-    match List.last lines with
-    | Some "" -> List.drop_last_exn lines
-    | _ -> lines)
-;;
-
 let of_files ?(on_error = default_on_error) ?range ~stream files =
   let in_range =
     match range with
@@ -122,7 +110,10 @@ let of_files ?(on_error = default_on_error) ?range ~stream files =
       if Pipe.is_closed w
       then return ()
       else (
-        match%bind In_thread.run (fun () -> load file) with
+        match%bind
+          In_thread.run (fun () ->
+            Or_error.try_with (fun () -> Raw_minute.read_lines_blocking file.path))
+        with
         | Error e ->
           on_error (Error.tag e ~tag:file.path);
           return ()
