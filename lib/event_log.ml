@@ -28,10 +28,42 @@ module Writer = struct
     ; flush_interval : Time_ns.Span.t option
     ; flush_bytes : int option
     ; writers : (Key.t, Event.t Framed.Writer.t) Hashtbl.t
+    ; snapshot_interval : Time_ns.Span.t option
+    ; snapshots :
+        ( Instrument.t
+          , Snapshot_index.Builder.t * Snapshot_index.Entry.t Framed.Writer.t )
+          Hashtbl.t
     }
 
-  let create ?flush_interval ?flush_bytes ~dir () =
-    { dir; flush_interval; flush_bytes; writers = Hashtbl.create (module Key) }
+  let create ?flush_interval ?flush_bytes ?snapshot_interval ~dir () =
+    Option.iter snapshot_interval ~f:(fun interval ->
+      ignore (Snapshot_index.Builder.create ~interval : Snapshot_index.Builder.t));
+    { dir
+    ; flush_interval
+    ; flush_bytes
+    ; writers = Hashtbl.create (module Key)
+    ; snapshot_interval
+    ; snapshots = Hashtbl.create (module Instrument)
+    }
+  ;;
+
+  let snapshot t (u : L2_update.t) =
+    match t.snapshot_interval with
+    | None -> ()
+    | Some interval ->
+      let builder, writer =
+        Hashtbl.find_or_add t.snapshots u.instrument ~default:(fun () ->
+          ( Snapshot_index.Builder.create ~interval
+          , Framed.Writer.create
+              ?flush_interval:t.flush_interval
+              ?flush_bytes:t.flush_bytes
+              ~digest:Snapshot_index.digest
+              Snapshot_index.Entry.bin_writer_t
+              ~path_for_date:(Snapshot_index.path ~dir:t.dir u.instrument)
+              () ))
+      in
+      Option.iter (Snapshot_index.Builder.observe builder u) ~f:(fun entry ->
+        Framed.Writer.append writer entry ~time:entry.at)
   ;;
 
   let writer t ((instrument, stream) as key) =
@@ -47,19 +79,36 @@ module Writer = struct
   ;;
 
   let append t event =
+    (match (event : Event.t) with
+     | L2 u -> snapshot t u
+     | Trade _ | Bbo _ | Funding _ -> ());
     Framed.Writer.append
       (writer t (Event.instrument event, Event.stream event))
       event
       ~time:(Event.recv_ts event)
   ;;
 
-  let all t ~f = Async.Deferred.List.iter ~how:`Parallel (Hashtbl.data t.writers) ~f
-  let flush t = all t ~f:Framed.Writer.flush
-  let close t = all t ~f:Framed.Writer.close
+  let all t ~f ~g =
+    let open Async in
+    let%map () = Deferred.List.iter ~how:`Parallel (Hashtbl.data t.writers) ~f
+    and () =
+      Deferred.List.iter ~how:`Parallel (Hashtbl.data t.snapshots) ~f:(fun (_, w) -> g w)
+    in
+    ()
+  ;;
+
+  let flush t = all t ~f:Framed.Writer.flush ~g:Framed.Writer.flush
+  let close t = all t ~f:Framed.Writer.close ~g:Framed.Writer.close
 
   let files t =
     Hashtbl.data t.writers
     |> List.concat_map ~f:Framed.Writer.files
+    |> List.sort ~compare:String.compare
+  ;;
+
+  let snapshot_files t =
+    Hashtbl.data t.snapshots
+    |> List.concat_map ~f:(fun (_, w) -> Framed.Writer.files w)
     |> List.sort ~compare:String.compare
   ;;
 end

@@ -38,10 +38,15 @@ val path : dir:string -> Instrument.t -> Stream.t -> Date.t -> string
 module Writer : sig
   type t
 
-  (** See {!Framed.Writer} for the flush policy, applied per file. *)
+  (** See {!Framed.Writer} for the flush policy, applied per file.
+
+      With [snapshot_interval] (e.g. one minute), the full L2 book of each instrument is
+      also written to its {!Snapshot_index} file whenever an L2 update crosses an interval
+      boundary; without it no snapshot files are written. *)
   val create
     :  ?flush_interval:Time_ns.Span.t
     -> ?flush_bytes:int
+    -> ?snapshot_interval:Time_ns.Span.t
     -> dir:string
     -> unit
     -> t
@@ -50,8 +55,11 @@ module Writer : sig
   val flush : t -> unit Async.Deferred.t
   val close : t -> unit Async.Deferred.t
 
-  (** Files opened so far, sorted. *)
+  (** Event files opened so far, sorted. *)
   val files : t -> string list
+
+  (** {!Snapshot_index} files opened so far, sorted. *)
+  val snapshot_files : t -> string list
 end
 
 (** Events of one file in file order, stopping at a damaged tail. Raises on a digest not
