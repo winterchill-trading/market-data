@@ -102,11 +102,28 @@ module Format = struct
   ;;
 end
 
+let instruments_view ~dir =
+  sprintf
+    "CREATE VIEW instruments AS SELECT * FROM read_parquet(%s, hive_partitioning=false);"
+    (quote (Instruments_table.glob ~dir))
+;;
+
+let existing_instruments_view ~dir =
+  match%map has_parquet (Instruments_table.table_dir ~dir) with
+  | true -> Some (instruments_view ~dir)
+  | false -> None
+;;
+
 let query ?(duckdb = "duckdb") ?(format = Format.Box) ~dir query =
   let%bind kinds = existing_kinds ~dir in
   let%bind units_csv = units_csv ~dir in
+  let%bind instruments = existing_instruments_view ~dir in
   let script =
-    String.concat ~sep:"\n" [ sql ~kinds ~dir (); derived_sql ?units_csv kinds; query ]
+    String.concat
+      ~sep:"\n"
+      ([ sql ~kinds ~dir () ]
+       @ Option.to_list instruments
+       @ [ derived_sql ?units_csv kinds; query ])
   in
   Process.run
     ~prog:duckdb

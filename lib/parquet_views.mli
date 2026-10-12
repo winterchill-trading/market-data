@@ -36,6 +36,12 @@ val units_csv : dir:string -> string option Deferred.t
     over a glob that matches nothing. *)
 val existing_kinds : dir:string -> Parquet_kind.t list Deferred.t
 
+(** [CREATE VIEW instruments] over {!Instruments_table.glob}. *)
+val instruments_view : dir:string -> string
+
+(** {!instruments_view} when [<dir>/instruments] holds a [.parquet] file. *)
+val existing_instruments_view : dir:string -> string option Deferred.t
+
 module Format : sig
   (** DuckDB CLI output modes. *)
   type t =
@@ -50,9 +56,9 @@ module Format : sig
 end
 
 (** Runs [sql] with [duckdb] (default ["duckdb"], looked up on [PATH]) on an in-memory
-    database after creating the views of {!existing_kinds} and their {!derived_sql}.
-    Returns standard output, or an error with standard error when DuckDB fails. [format]
-    defaults to [Box]. *)
+    database after creating the views of {!existing_kinds}, {!existing_instruments_view}
+    and their {!derived_sql}. Returns standard output, or an error with standard error
+    when DuckDB fails. [format] defaults to [Box]. *)
 val query
   :  ?duckdb:string
   -> ?format:Format.t
