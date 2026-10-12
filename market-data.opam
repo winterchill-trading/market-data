@@ -17,6 +17,7 @@ depends: [
   "fixed-decimal"
   "exchange-core"
   "parquet"
+  "zstd"
   "ppx_jane"
   "odoc" {with-doc}
 ]

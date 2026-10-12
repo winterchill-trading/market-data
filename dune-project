@@ -28,4 +28,5 @@
   fixed-decimal
   exchange-core
   parquet
+  zstd
   ppx_jane))
