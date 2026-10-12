@@ -88,7 +88,13 @@ test checks they still read, so never regenerate them.
 | `Parquet_file` | a Parquet file written through `In_thread`, renamed into place on close |
 | `Parquet_sink` | live batching writer: row groups handed to a separate job chain, daily files |
 | `Day_close` | rebuilds a day of `parquet/` from `norm/`, skipping tables that are up to date |
-| `Parquet_views` | DuckDB `CREATE VIEW`s over all instruments and a `duckdb` CLI runner |
+| `Parquet_views` | DuckDB `CREATE VIEW`s over all instruments, derived views and a `duckdb` CLI runner |
+| `Contract_units` | token units per price and per size unit of known listings (`1000PEPEUSDT`, `kPEPE`, OKX swaps) |
+| `Quality_check` | DuckDB data-quality assertions and the `gaps` view |
+| `Catalog` | per table venues, symbols, first/last day, files and leftover parts |
+| `L2_book` | an L2 book rebuilt from snapshots and deltas |
+| `Event_dump` | one-line rendering of events and books as of a time |
+| `Query_log` | ndjson audit log of SQL run through `query` |
 
 Writers buffer frames and flush every 100 ms, at 1 MiB, on `flush` and on
 `close` (both configurable).
@@ -116,9 +122,14 @@ There are two ways to fill `parquet/`:
   dropped and counted). The first row of a new UTC day on the sink clock closes the previous
   file. A restart on the same day writes `<date>.1.parquet`, `.2`, ...
 - `market-data day-close` (or `Day_close.run`) from the event log after the day
-  is over. It is idempotent: a table whose `<date>.parquet` is newer than its
-  `norm/` file is skipped (`-force` rewrites it), and a rewrite removes the
-  numbered parts of a restarted sink.
+  is over. Every table it writes gets a manifest,
+  `parquet/<kind>/_manifest/<date>.sexp`, with its input files (size, mtime),
+  output bytes, rows and a code version that includes the event digest. A
+  table whose manifest matches the current inputs and code version is skipped
+  (`-force` rewrites it); one without a manifest is rebuilt. A rewrite removes
+  the numbered parts of a restarted sink. Per table it prints input frames and
+  bytes, output bytes, elapsed time and the parts it replaced. The `_manifest`
+  directory is skipped by pyarrow and Spark dataset readers.
 
 Files are written as `<name>.tmp` and renamed when complete, so readers
 globbing `*.parquet` never see a partial file.
@@ -159,6 +170,44 @@ SELECT sum(price::DECIMAL(38,16) * size) AS notional FROM trades;
 SELECT side, level, price, size FROM l2
 WHERE seq = (SELECT max(seq) FROM l2 WHERE is_snapshot) ORDER BY side, level;
 ```
+
+### Derived views
+
+`query` and `views` also define, when their tables exist:
+
+| View | Contents |
+| --- | --- |
+| `trades_with_bbo` | each trade with the bbo prevailing at its `recv_ts` (`ASOF LEFT JOIN` on venue and symbol): `bbo_recv_ts`, `bid_price`, `bid_size`, `ask_price`, `ask_size` |
+| `lag` | per table, venue and symbol: `n`, `p50_ms`, `p99_ms` of `recv_ts - exch_ts` |
+| `units_per_contract` | table: `venue`, `symbol`, `token`, `units_per_contract` (tokens per size unit), `units_per_price` (tokens a price is for); built-in rows, replaced per venue and symbol by `<root>/units_per_contract.csv` (same columns, with a header) |
+| `token_bbo` | bbo of instruments in `units_per_contract` in token terms: `token`, `bid`, `ask`, `mid`, `bid_qty`, `ask_qty` |
+
+```sql
+-- the same token across venues
+SELECT token, venue, symbol, avg(mid) FROM token_bbo GROUP BY ALL ORDER BY ALL;
+```
+
+### Other commands
+
+```
+market-data dump FILE...                     # events of norm/ files, merged by recv_ts
+market-data dump -book-at 2026-01-01T12:00:00Z -depth 10 .../norm/l2/2026-01-01.bin
+market-data check -dir /data/md -max-gap 30s # exits 1 when any check fails
+market-data catalog -dir /data/md
+```
+
+`dump` prints one line per event (`<recv_ts> <venue>:<symbol> <stream> ...`);
+with `-book-at` it instead prints the L2 book of each instrument after every
+update received at or before that time. `check` counts, per table, `recv_ts`
+gaps longer than `-max-gap` within an instrument (trades, bbo, l2),
+non-positive sizes (zero l2 sizes only in snapshots) and crossed bbo
+(`bid > ask`), then prints the largest gaps from its `gaps` view. `catalog`
+lists per table the venues, number of symbols, first and last day, file count
+and leftover numbered sink parts. `query` appends `{"time", "user", "sql"}`
+to `<root>/query-log.ndjson` before running (`-no-log` to skip).
+
+`Replay_feed.of_range` replays the files of instruments and a date range and
+fails, naming the range, when there are none.
 
 ## Usage
 
