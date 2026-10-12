@@ -37,7 +37,9 @@ type t = Stable.V1.t =
 include Comparable.S with type t := t
 include Hashable.S with type t := t
 
-(** Stable lowercase name used in file paths: ["hyperliquid"], ["binance"], ["bybit"], ["okx"], ["coinbase"], ["kraken"], ["deribit"], ["bitget"], ["nyse"], ["cboe"], ["cme"]. *)
+(** Stable lowercase name used in file paths: ["hyperliquid"], ["binance"], ["bybit"],
+    ["okx"], ["coinbase"], ["kraken"], ["deribit"], ["bitget"], ["nyse"], ["cboe"],
+    ["cme"]. *)
 val to_string : t -> string
 
 (** Inverse of {!to_string}; case-insensitive. Raises on unknown names. *)

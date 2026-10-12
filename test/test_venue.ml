@@ -6,7 +6,8 @@ let%expect_test "venue names round trip" =
     let s = Venue.to_string v in
     assert (Venue.equal v (Venue.of_string s));
     print_endline s);
-  [%expect {|
+  [%expect
+    {|
     hyperliquid
     binance
     bybit
