@@ -9,6 +9,36 @@ let dir_flag =
     ~doc:"DIR market data root"
 ;;
 
+(* Runs [day-close] for each instrument in its own process, at most [processes] at once,
+   and prints their output in instrument order. *)
+let day_close_processes ~processes ~dir ~date ~force ~jobs instruments =
+  let%bind outputs =
+    Deferred.List.map
+      instruments
+      ~how:(`Max_concurrent_jobs processes)
+      ~f:(fun instrument ->
+        Process.run
+          ~prog:Sys_unix.executable_name
+          ~args:
+            ([ "day-close"
+             ; "-dir"
+             ; dir
+             ; "-date"
+             ; Date.to_string date
+             ; "-venue"
+             ; Venue.to_string (Instrument.venue instrument)
+             ; "-symbol"
+             ; Symbol.to_string (Instrument.symbol instrument)
+             ; "-jobs"
+             ; Int.to_string jobs
+             ]
+             @ if force then [ "-force" ] else [])
+          ())
+  in
+  List.iter outputs ~f:(fun output -> print_string (Or_error.ok_exn output));
+  return ()
+;;
+
 let day_close =
   Command.async
     ~summary:"Convert a closed day of norm/ event logs into parquet/ tables"
@@ -27,6 +57,11 @@ let day_close =
          "-jobs"
          (optional_with_default 1 int)
          ~doc:"N tables to convert at once (default 1)"
+     and processes =
+       flag
+         "-processes"
+         (optional_with_default 1 int)
+         ~doc:"N instruments to convert at once, each in its own process (default 1)"
      in
      fun () ->
        let today = Store.date_of_time (Time_ns.now ()) in
@@ -46,27 +81,36 @@ let day_close =
            let%map all = Store.instruments (Store.create dir) in
            Some (List.filter all ~f:(fun i -> Venue.equal (Instrument.venue i) venue))
        in
-       let%map results = Day_close.run ~force ~jobs ?instruments ~dir date in
-       List.iter results ~f:(fun (r : Day_close.Result.t) ->
-         match r.outcome with
-         | No_source -> ()
-         | Up_to_date -> printf "up to date %s\n" r.path
-         | Written { rows; tail } ->
-           printf "wrote %s (%d rows)\n" r.path rows;
-           Option.iter r.stats ~f:(fun (s : Day_close.Stats.t) ->
-             printf
-               !"  %s: %d frames (%d bytes) in, %d bytes out, %{Time_ns.Span}%s\n"
-               (Parquet_kind.to_string r.kind)
-               s.input_frames
-               s.input_bytes
-               s.output_bytes
-               s.elapsed
-               (match s.replaced_parts with
-                | [] -> ""
-                | parts -> ", replaced " ^ String.concat ~sep:" " parts));
-           (match tail with
-            | Clean -> ()
-            | tail -> print_s [%message "  damaged source" (tail : Framed.Tail.t)])))
+       if processes > 1
+       then (
+         let%bind instruments =
+           match instruments with
+           | Some l -> return l
+           | None -> Store.instruments (Store.create dir)
+         in
+         day_close_processes ~processes ~dir ~date ~force ~jobs instruments)
+       else (
+         let%map results = Day_close.run ~force ~jobs ?instruments ~dir date in
+         List.iter results ~f:(fun (r : Day_close.Result.t) ->
+           match r.outcome with
+           | No_source -> ()
+           | Up_to_date -> printf "up to date %s\n" r.path
+           | Written { rows; tail } ->
+             printf "wrote %s (%d rows)\n" r.path rows;
+             Option.iter r.stats ~f:(fun (s : Day_close.Stats.t) ->
+               printf
+                 !"  %s: %d frames (%d bytes) in, %d bytes out, %{Time_ns.Span}%s\n"
+                 (Parquet_kind.to_string r.kind)
+                 s.input_frames
+                 s.input_bytes
+                 s.output_bytes
+                 s.elapsed
+                 (match s.replaced_parts with
+                  | [] -> ""
+                  | parts -> ", replaced " ^ String.concat ~sep:" " parts));
+             (match tail with
+              | Clean -> ()
+              | tail -> print_s [%message "  damaged source" (tail : Framed.Tail.t)]))))
 ;;
 
 let views =
