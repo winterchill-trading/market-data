@@ -99,3 +99,67 @@ let%expect_test "crash safety: reopening repairs the tail before appending" =
           (tail : Framed.Tail.t)];
     [%expect {| ((payloads (payload-1 payload-2 after-restart)) (tail Clean)) |}])
 ;;
+
+let%expect_test "flush policy: by time and by size" =
+  Sample.with_temp_dir (fun dir ->
+    let ms = Time_ns.Span.of_int_ms in
+    let size_after ~flush_interval ~flush_bytes payload =
+      let path = Frame_log.path ~dir Sample.btc L2 (Date.of_string "2026-01-01") in
+      let%bind () = Process.run_expect_no_stdout_exn ~prog:"rm" ~args:[ "-f"; path ] () in
+      let w = Frame_log.Writer.create ~flush_interval ~flush_bytes ~dir Sample.btc L2 in
+      Frame_log.Writer.write w ~recv_ts:(Sample.ts 0) ~stream_id:0 payload;
+      let%bind immediately = Sys.file_exists_exn path in
+      let%bind () = Clock_ns.after (ms 200) in
+      let%bind later =
+        match%map Monitor.try_with (fun () -> file_size path) with
+        | Ok n -> Int.to_string n
+        | Error _ -> "missing"
+      in
+      let%map () = Frame_log.Writer.close w in
+      print_s [%message (immediately : bool) (later : string)]
+    in
+    (* timer flush: tiny record, large size threshold, 50ms interval *)
+    let%bind () = size_after ~flush_interval:(ms 50) ~flush_bytes:1_000_000 "small" in
+    (* size flush: interval far away, record over the threshold *)
+    let%bind () =
+      size_after ~flush_interval:Time_ns.Span.hour ~flush_bytes:100 (String.make 100 'x')
+    in
+    (* neither: nothing reaches the file before close *)
+    let%bind () =
+      size_after ~flush_interval:Time_ns.Span.hour ~flush_bytes:1_000_000 "small"
+    in
+    [%expect
+      {|
+      ((immediately false) (later 24))
+      ((immediately false) (later 119))
+      ((immediately false) (later missing))
+      |}];
+    return ())
+;;
+
+let%expect_test "merged read across streams orders by recv_ts" =
+  Sample.with_temp_dir (fun dir ->
+    let trades = Frame_log.Writer.create ~dir Sample.btc Trades in
+    let bbo = Frame_log.Writer.create ~dir Sample.btc Bbo in
+    List.iter
+      [ 0, trades; 5, bbo; 5, trades; 7, bbo; 9, trades ]
+      ~f:(fun (ms, w) ->
+        let stream_id = if phys_equal w trades then 1 else 2 in
+        Frame_log.Writer.write w ~recv_ts:(Sample.ts ms) ~stream_id (sprintf "at-%d" ms));
+    let%bind () = Frame_log.Writer.close trades in
+    let%bind () = Frame_log.Writer.close bbo in
+    let%map records =
+      Pipe.to_list
+        (Frame_log.read_merged
+           (Frame_log.Writer.files trades @ Frame_log.Writer.files bbo))
+    in
+    print_records records;
+    [%expect
+      {|
+      2026-01-01 00:00:00.000000000Z #1 at-0
+      2026-01-01 00:00:00.005000000Z #1 at-5
+      2026-01-01 00:00:00.005000000Z #2 at-5
+      2026-01-01 00:00:00.007000000Z #2 at-7
+      2026-01-01 00:00:00.009000000Z #1 at-9
+      |}])
+;;
