@@ -125,9 +125,57 @@ let query =
        print_string output)
 ;;
 
+let check =
+  Command.async_or_error
+    ~summary:"Data-quality assertions over the parquet tables (exits 1 on violations)"
+    ~readme:(fun () ->
+      "Counts recv_ts gaps longer than -max-gap per instrument (trades, bbo, l2), \
+       non-positive sizes and crossed bbo, then prints the largest gaps.")
+    (let%map_open.Command dir = dir_flag
+     and duckdb =
+       flag
+         "-duckdb"
+         (optional_with_default default_duckdb string)
+         ~doc:(sprintf "PATH duckdb binary (default %s)" default_duckdb)
+     and max_gap =
+       flag
+         "-max-gap"
+         (optional_with_default Time_ns.Span.minute Time_ns.Span.arg_type)
+         ~doc:"SPAN longest allowed recv_ts gap (default 1m)"
+     and show_gaps =
+       flag
+         "-show-gaps"
+         (optional_with_default 20 int)
+         ~doc:"N gaps to print (default 20)"
+     in
+     fun () ->
+       let%bind.Deferred.Or_error report =
+         Quality_check.run ~duckdb ~max_gap ~show_gaps ~dir ()
+       in
+       List.iter report.checks ~f:(fun (c : Quality_check.Check.t) ->
+         printf
+           "%-4s %-18s %-7s %d\n"
+           (if c.violations > 0 then "FAIL" else "ok")
+           c.name
+           (Parquet_kind.to_string c.table)
+           c.violations);
+       if not (String.is_empty (String.strip report.gaps))
+       then printf "\nlargest gaps:\n%s" report.gaps;
+       match Quality_check.Report.failed report with
+       | [] -> Deferred.Or_error.ok_unit
+       | failed ->
+         Deferred.Or_error.error_s
+           [%message "quality checks failed" ~checks:(List.length failed : int)])
+;;
+
 let () =
   Command.group
     ~summary:"Recorded market data tools"
-    [ "day-close", day_close; "views", views; "query", query; "dump", dump ]
+    [ "day-close", day_close
+    ; "views", views
+    ; "query", query
+    ; "dump", dump
+    ; "check", check
+    ]
   |> Command_unix.run
 ;;
