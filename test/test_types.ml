@@ -38,3 +38,27 @@ let%expect_test "bbo" =
     bin_io: 55 bytes, round trip true
     |}]
 ;;
+
+let%expect_test "l2 update" =
+  print_endline [%bin_digest: L2_update.Stable.V1.t];
+  let level price size : L2_update.Level.t =
+    { price = Price.of_string price; size = Size.of_string size }
+  in
+  let u : L2_update.t =
+    { instrument = Sample.btc
+    ; exch_ts = Sample.ts 0
+    ; recv_ts = Sample.ts 1
+    ; kind = Delta
+    ; bids = [ level "100" "2"; level "99.5" "0" ]
+    ; asks = [ level "100.5" "1" ]
+    }
+  in
+  print_s [%sexp (u.bids : L2_update.Level.t list)];
+  Sample.bin_round_trip (module L2_update) ~equal:L2_update.equal u;
+  [%expect
+    {|
+    f2909b9364fddfd517e87b92fea24ccd
+    (((price 100) (size 2)) ((price 99.5) (size 0)))
+    bin_io: 68 bytes, round trip true
+    |}]
+;;
