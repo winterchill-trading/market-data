@@ -8,7 +8,7 @@ let%expect_test "trade" =
   Sample.bin_round_trip (module Trade) ~equal:Trade.equal t;
   [%expect
     {|
-    73a9af9ebd8c5fa1db2af823f730850f
+    8a9019c8c768525261b3aa4062600d9c
     ((instrument ((venue Binance) (symbol BTCUSDT)))
      (exch_ts (2026-01-01 00:00:01.500000000Z))
      (recv_ts (2026-01-01 00:00:01.501000000Z)) (price 113377.5) (size 0.012)
@@ -33,7 +33,7 @@ let%expect_test "bbo" =
   Sample.bin_round_trip (module Bbo) ~equal:Bbo.equal b;
   [%expect
     {|
-    0d94a08074b73d849c735b2e66b6e8f5
+    8604b14f66b95d5eb8c7bb9c52fda52e
     ((mid 100.25) (spread 0.3))
     bin_io: 55 bytes, round trip true
     |}]
@@ -57,7 +57,7 @@ let%expect_test "l2 update" =
   Sample.bin_round_trip (module L2_update) ~equal:L2_update.equal u;
   [%expect
     {|
-    f2909b9364fddfd517e87b92fea24ccd
+    3187cac79dfac0af257cb77677526f66
     (((price 100) (size 2)) ((price 99.5) (size 0)))
     bin_io: 68 bytes, round trip true
     |}]
@@ -79,7 +79,7 @@ let%expect_test "funding" =
   Sample.bin_round_trip (module Funding) ~equal:Funding.equal f;
   [%expect
     {|
-    c1e3acfc954a469df7b2a57808fab43c
+    48ddfc47956585cccc7e97fc8526009f
     "2026-01-01 01:00:00Z"
     bin_io: 62 bytes, round trip true
     |}]
@@ -105,7 +105,7 @@ let%expect_test "candle" =
   Sample.bin_round_trip (module Candle) ~equal:Candle.equal c;
   [%expect
     {|
-    9fafd26753c1a9487850f67464634f9e
+    e5ca1ead96dc7aa7036acd969e8625fb
     ((instrument ((venue Binance) (symbol BTCUSDT))) (interval 1m)
      (open_time (2026-01-01 00:00:00.000000000Z)) (open_ 100) (high 101)
      (low 99) (close 100.5) (volume 12.25) (trade_count 42))

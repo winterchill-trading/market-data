@@ -57,7 +57,7 @@ let%expect_test "listing days, instruments and files" =
     List.iter files ~f:(fun f -> print_endline (Sample.relative ~dir f));
     [%expect
       {|
-      (hyperliquid:ETH binance:BTCUSDT)
+      (hyperliquid:ETH binance:BTCUSDT kraken:XBT)
       (2026-01-01 2026-01-02 2026-01-04)
       ()
       binance/BTCUSDT/norm/trades/2026-01-02.bin

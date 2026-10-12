@@ -6,6 +6,14 @@ module Stable = struct
       | Hyperliquid
       | Binance
       | Bybit
+      | Okx
+      | Coinbase
+      | Kraken
+      | Deribit
+      | Bitget
+      | Nyse
+      | Cboe
+      | Cme
     [@@deriving bin_io, sexp, compare, equal, hash, enumerate]
   end
 end
@@ -15,6 +23,14 @@ module T = struct
     | Hyperliquid
     | Binance
     | Bybit
+    | Okx
+    | Coinbase
+    | Kraken
+    | Deribit
+    | Bitget
+    | Nyse
+    | Cboe
+    | Cme
   [@@deriving bin_io, sexp, compare, equal, hash, enumerate]
 end
 
@@ -26,6 +42,14 @@ let to_string = function
   | Hyperliquid -> "hyperliquid"
   | Binance -> "binance"
   | Bybit -> "bybit"
+  | Okx -> "okx"
+  | Coinbase -> "coinbase"
+  | Kraken -> "kraken"
+  | Deribit -> "deribit"
+  | Bitget -> "bitget"
+  | Nyse -> "nyse"
+  | Cboe -> "cboe"
+  | Cme -> "cme"
 ;;
 
 let of_string_opt s =
