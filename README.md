@@ -294,6 +294,24 @@ Bybit to Hyperliquid 80 ms and Binance to Hyperliquid 120 ms, all matched, and
 nothing matched in the other direction. `query -file PATH` reads SQL from a
 file.
 
+On 85 s of a mainnet recording of BTC perpetuals (2026-10-12, one machine),
+the median lags were:
+
+| Leader to follower | Median ms | Matched share | Reverse median ms |
+| --- | --- | --- | --- |
+| Binance to Bybit | 17.1 | 0.75 | 115.7 |
+| Binance to OKX | 19.8 | 0.66 | 111.4 |
+| OKX to Bitget | 28.5 | 0.75 | 108.6 |
+| Bybit to Bitget | 30.3 | 0.69 | 97.3 |
+| Binance to Bitget | 32.9 | 0.60 | 150.7 |
+| Binance to Coinbase | 216.6 | 0.81 | 278.7 |
+
+Binance leads the other perpetuals by 17 to 33 ms; Coinbase spot follows
+everything by 150 to 220 ms; Hyperliquid had 18 bbo rows in the window, too
+few to place. Deribit is missing: its sizes are quote-sized, so it has no
+`units_per_contract` row and no `token_bbo` rows. A sample this short says
+little beyond the order; rerun on a full day.
+
 ### Checking a day close across revisions
 
 `scripts/daycheck-diff.sh A B` day-closes the same `norm/` data (`-data DIR`,
