@@ -13,12 +13,24 @@ module Outcome = struct
   [@@deriving sexp_of, compare, equal]
 end
 
+module Stats = struct
+  type t =
+    { input_frames : int
+    ; input_bytes : int
+    ; replaced_parts : string list
+    ; output_bytes : int
+    ; elapsed : Time_ns.Span.t
+    }
+  [@@deriving sexp_of]
+end
+
 module Result = struct
   type t =
     { instrument : Instrument.t
     ; kind : Parquet_kind.t
     ; path : string
     ; outcome : Outcome.t
+    ; stats : Stats.t option
     }
   [@@deriving sexp_of]
 end
@@ -99,7 +111,10 @@ let remove_parts target =
       (match String.chop_suffix rest ~suffix:".parquet" with
        | Some n -> String.for_all n ~f:Char.is_digit && not (String.is_empty n)
        | None -> false))
-  |> Deferred.List.iter ~how:`Sequential ~f:(fun name -> Unix.unlink (dir ^/ name))
+  |> List.sort ~compare:String.compare
+  |> Deferred.List.map ~how:`Sequential ~f:(fun name ->
+    let%map () = Unix.unlink (dir ^/ name) in
+    name)
 ;;
 
 (* Streams [source] into [target], [f] turning each chunk of events into rows. [finish]
@@ -107,15 +122,18 @@ let remove_parts target =
 let convert ?compression ~row_group_rows ~schema ~source ~target ~f ~finish () =
   let%bind file = Parquet_file.create ?compression schema ~row_group_rows target in
   let events, tail = Event_log.read_file source in
+  let frames = ref 0 in
   let%bind () =
-    Pipe.iter' events ~f:(fun chunk -> Parquet_file.add file (f (Queue.to_list chunk)))
+    Pipe.iter' events ~f:(fun chunk ->
+      frames := !frames + Queue.length chunk;
+      Parquet_file.add file (f (Queue.to_list chunk)))
   in
   let%bind () = Parquet_file.add file (finish ()) in
   let rows = Parquet_file.num_rows file in
   let%bind () = Parquet_file.close file in
-  let%bind () = remove_parts target in
+  let%bind replaced_parts = remove_parts target in
   let%map tail in
-  Outcome.Written { rows; tail }
+  Outcome.Written { rows; tail }, !frames, replaced_parts
 ;;
 
 let table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument date kind =
@@ -131,14 +149,15 @@ let table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument d
   let%bind input = Manifest.input ~dir source in
   let%bind manifest = Manifest.load target in
   let%bind target_exists = Sys.file_exists_exn target in
-  let%map outcome =
+  let started = Time_ns.now () in
+  let%map outcome, stats =
     match input, manifest with
-    | None, _ -> return Outcome.No_source
+    | None, _ -> return (Outcome.No_source, None)
     | Some input, Some m
       when (not force) && target_exists && Manifest.matches m ~inputs:[ input ] ->
-      return Outcome.Up_to_date
+      return (Outcome.Up_to_date, None)
     | Some input, _ ->
-      let%bind outcome =
+      let%bind outcome, frames, replaced_parts =
         let convert schema ~f ~finish =
           convert ?compression ~row_group_rows ~schema ~source ~target ~f ~finish ()
         in
@@ -191,6 +210,10 @@ let table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument d
             ~finish:(fun () -> Option.to_list (Candle_agg.current agg))
       in
       let%bind output = Manifest.stat target in
+      let output_bytes =
+        Option.value_map output ~default:0 ~f:(fun (s : Unix.Stats.t) ->
+          Int64.to_int_exn s.size)
+      in
       let%map () =
         match outcome with
         | Written { rows; tail = _ } ->
@@ -198,17 +221,22 @@ let table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument d
             target
             { inputs = [ input ]
             ; output = Manifest.relative ~dir target
-            ; output_bytes =
-                Option.value_map output ~default:0 ~f:(fun (s : Unix.Stats.t) ->
-                  Int64.to_int_exn s.size)
+            ; output_bytes
             ; rows
             ; code_version = Manifest.code_version
             }
         | Up_to_date | No_source -> return ()
       in
-      outcome
+      ( outcome
+      , Some
+          { Stats.input_frames = frames
+          ; input_bytes = input.size
+          ; replaced_parts
+          ; output_bytes
+          ; elapsed = Time_ns.diff (Time_ns.now ()) started
+          } )
   in
-  { Result.instrument; kind; path = target; outcome }
+  { Result.instrument; kind; path = target; outcome; stats }
 ;;
 
 let run

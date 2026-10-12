@@ -54,12 +54,25 @@ module Manifest : sig
   val load : string -> t option Deferred.t
 end
 
+(** What a table rebuild read and wrote. *)
+module Stats : sig
+  type t =
+    { input_frames : int (** events read from the source file *)
+    ; input_bytes : int
+    ; replaced_parts : string list (** numbered sink parts removed, file names *)
+    ; output_bytes : int
+    ; elapsed : Time_ns.Span.t (** wall time of the rebuild *)
+    }
+  [@@deriving sexp_of]
+end
+
 module Result : sig
   type t =
     { instrument : Instrument.t
     ; kind : Parquet_kind.t
     ; path : string
     ; outcome : Outcome.t
+    ; stats : Stats.t option (** present when the table was written *)
     }
   [@@deriving sexp_of]
 end
