@@ -49,7 +49,7 @@ let day_close =
            printf "wrote %s (%d rows)\n" r.path rows;
            Option.iter r.stats ~f:(fun (s : Day_close.Stats.t) ->
              printf
-               !"  %s: %d frames (%d bytes) in, %d bytes out, %{Time_ns.Span} %s\n"
+               !"  %s: %d frames (%d bytes) in, %d bytes out, %{Time_ns.Span}%s\n"
                (Parquet_kind.to_string r.kind)
                s.input_frames
                s.input_bytes
@@ -57,7 +57,7 @@ let day_close =
                s.elapsed
                (match s.replaced_parts with
                 | [] -> ""
-                | parts -> "replaced " ^ String.concat ~sep:" " parts));
+                | parts -> ", replaced " ^ String.concat ~sep:" " parts));
            (match tail with
             | Clean -> ()
             | tail -> print_s [%message "  damaged source" (tail : Framed.Tail.t)])))
