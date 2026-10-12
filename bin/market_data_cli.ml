@@ -168,6 +168,15 @@ let check =
            [%message "quality checks failed" ~checks:(List.length failed : int)])
 ;;
 
+let catalog =
+  Command.async
+    ~summary:"Per table: venues, symbol count, first and last day, files, leftover parts"
+    (let%map_open.Command dir = dir_flag in
+     fun () ->
+       let%map entries = Catalog.scan ~dir in
+       print_string (Catalog.to_string_hum entries))
+;;
+
 let () =
   Command.group
     ~summary:"Recorded market data tools"
