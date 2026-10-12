@@ -1,0 +1,7 @@
+(executable
+ (name market_data_cli)
+ (public_name market-data)
+ (package market-data)
+ (libraries core core_unix.command_unix async market-data)
+ (preprocess
+  (pps ppx_jane)))

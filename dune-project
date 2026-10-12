@@ -23,6 +23,7 @@
   dune
   core
   async
+  core_unix
   bin_prot
   fixed-decimal
   exchange-core
