@@ -30,10 +30,19 @@ module Stats : sig
   [@@deriving sexp_of]
 end
 
+(** One minute, the recorder's default. *)
+val default_snapshot_interval : Time_ns.Span.t
+
 (** Fails without writing when [out_dir] exists and is not empty: event logs are appended
-    to, so rebuilding over existing files would duplicate events. *)
+    to, so rebuilding over existing files would duplicate events.
+
+    L2 events also feed the {!Snapshot_index} files under [norm/l2/_snapshots/], written
+    by the same {!Event_log.Writer} the recorder uses, so a rebuilt day has the same index
+    as a recorded one. [snapshot_interval] defaults to {!default_snapshot_interval}; zero
+    or less writes no index. *)
 val run
-  :  normalizers:Normalizer.t list
+  :  ?snapshot_interval:Time_ns.Span.t
+  -> normalizers:Normalizer.t list
   -> data_dir:string
   -> out_dir:string
   -> Date.t

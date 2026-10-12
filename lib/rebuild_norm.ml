@@ -32,7 +32,15 @@ let check_out_dir out_dir =
             (out_dir : string)]
 ;;
 
-let run ~normalizers ~data_dir ~out_dir date =
+let default_snapshot_interval = Time_ns.Span.of_min 1.
+
+let run
+  ?(snapshot_interval = default_snapshot_interval)
+  ~normalizers
+  ~data_dir
+  ~out_dir
+  date
+  =
   match%bind check_out_dir out_dir with
   | Error _ as e -> return e
   | Ok () ->
@@ -40,7 +48,10 @@ let run ~normalizers ~data_dir ~out_dir date =
     let normalizer venue =
       List.find normalizers ~f:(fun n -> Venue.equal (Normalizer.venue n) venue)
     in
-    let writer = Event_log.Writer.create ~dir:out_dir () in
+    let snapshot_interval =
+      Option.some_if Time_ns.Span.(snapshot_interval > zero) snapshot_interval
+    in
+    let writer = Event_log.Writer.create ?snapshot_interval ~dir:out_dir () in
     let frames = ref 0
     and disconnects = ref 0
     and events = ref 0
@@ -112,7 +123,8 @@ let command normalizers =
     ~readme:(fun () ->
       sprintf
         "Reads <data-dir>/raw/<venue>/<stream>/<symbol>/<YYYY>/<MM>/<DD>/*.ndjson[.zst] \
-         and writes <out>/<venue>/<symbol>/norm/<stream>/<date>.bin.\n\
+         and writes <out>/<venue>/<symbol>/norm/<stream>/<date>.bin, plus the L2 \
+         snapshot index <out>/<venue>/<symbol>/norm/l2/_snapshots/<date>.bin.\n\
          Venues with a normalizer in this binary: %s."
         (match normalizers with
          | [] -> "none (link a feed library's Normalizer.S to add one)"
@@ -126,8 +138,18 @@ let command normalizers =
          "-out"
          (required string)
          ~doc:"DIR where to write the event logs (new or empty)"
-     and date = flag "-date" (required date) ~doc:"YYYY-MM-DD UTC day to rebuild" in
+     and date = flag "-date" (required date) ~doc:"YYYY-MM-DD UTC day to rebuild"
+     and snapshot_interval =
+       flag
+         "-snapshot-interval"
+         (optional_with_default default_snapshot_interval Time_ns.Span.arg_type)
+         ~doc:
+           "SPAN interval of the L2 snapshot index under norm/l2/_snapshots/ (default \
+            1m, as the recorder; 0s writes none)"
+     in
      fun () ->
-       let%map.Deferred.Or_error stats = run ~normalizers ~data_dir ~out_dir date in
+       let%map.Deferred.Or_error stats =
+         run ~snapshot_interval ~normalizers ~data_dir ~out_dir date
+       in
        Core.print_s [%sexp (stats : Stats.t)])
 ;;
