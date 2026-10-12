@@ -250,3 +250,38 @@ let%expect_test "manifests decide what is up to date" =
       |}];
     return ())
 ;;
+
+let%expect_test "per-table stats of a rebuild" =
+  Sample.with_temp_dir (fun dir ->
+    let%bind () = write_log ~dir in
+    let part = Parquet_kind.kind_dir ~dir Sample.btc Trades ^/ "2026-01-01.1.parquet" in
+    let%bind () = Unix.mkdir ~p:() (Filename.dirname part) in
+    let%bind () = Writer.save part ~contents:"" in
+    let%map results = Day_close.run ~instruments:[ Sample.btc ] ~dir day in
+    List.iter results ~f:(fun (r : Day_close.Result.t) ->
+      match r.stats with
+      | None -> ()
+      | Some s ->
+        print_s
+          [%message
+            ""
+              ~table:(Parquet_kind.to_string r.kind : string)
+              ~frames:(s.input_frames : int)
+              ~input_bytes:(s.input_bytes : int)
+              ~replaced:(s.replaced_parts : string list)
+              ~wrote_bytes:(s.output_bytes > 0 : bool)
+              ~timed:(Time_ns.Span.(s.elapsed >= zero) : bool)]);
+    [%expect
+      {|
+      ((table trades) (frames 3) (input_bytes 205)
+       (replaced (2026-01-01.1.parquet)) (wrote_bytes true) (timed true))
+      ((table bbo) (frames 1) (input_bytes 104) (replaced ()) (wrote_bytes true)
+       (timed true))
+      ((table l2) (frames 2) (input_bytes 170) (replaced ()) (wrote_bytes true)
+       (timed true))
+      ((table funding) (frames 1) (input_bytes 111) (replaced ())
+       (wrote_bytes true) (timed true))
+      ((table candles) (frames 3) (input_bytes 205) (replaced ())
+       (wrote_bytes true) (timed true))
+      |}])
+;;
