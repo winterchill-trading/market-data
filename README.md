@@ -32,6 +32,7 @@ re-exported here with stable bin_io encodings.
         l2/...                  one row per price level
         funding/...
         candles/...             1 minute candles from trades
+  instruments/2026-01-01.parquet  the day's universe, written by day-close
 ```
 
 `raw/` and `norm/` hold one file per instrument, stream and UTC day of the local
@@ -126,6 +127,7 @@ holds `recv_ts` for such rows.
 | `Parquet_file` | a Parquet file written through `In_thread`, renamed into place on close |
 | `Parquet_sink` | live batching writer: row groups handed to a separate job chain, daily files |
 | `Day_close` | rebuilds a day of `parquet/` from `norm/`, skipping tables that are up to date |
+| `Instruments_table` | the point-in-time universe of a day: instruments with event logs that day and their catalogue facts, `<root>/instruments/<date>.parquet` |
 | `Parquet_views` | DuckDB `CREATE VIEW`s over all instruments, derived views and a `duckdb` CLI runner |
 | `Instrument_info` | catalogue per venue and symbol: kind (`Spot \| Perp \| Future \| Option`), base, quote, size unit (`Base \| Quote \| Contracts m`), funding interval, tick, lot; built from [`data/instruments.sexp`](data/instruments.sexp) |
 | `Contract_units` | token units per price and per size unit, derived from the `Instrument_info` catalogue (quote-sized instruments have no row) |
@@ -156,6 +158,17 @@ timestamps.
 | `l2` | `seq` (update number in the day), `is_snapshot`, `side` (`bid`/`ask`), `level`, `price`, `size` (0 removes the level in a delta) |
 | `funding` | `rate` (double), `next_funding_time`, `mark_price`, `index_price` |
 | `candles` | `interval_ns`, `open_time`, `open`, `high`, `low`, `close`, `volume`, `trade_count` |
+
+`instruments` is not per instrument: day close writes
+`<root>/instruments/<date>.parquet` with one row per instrument that has a
+`norm/` file that day, so a backtest can select the universe of a past day
+instead of today's catalogue. Columns: `date` (`YYYY-MM-DD`), `venue`,
+`symbol`, `streams` (`trades,bbo,...`), `in_catalogue`, then the
+`Instrument_info` facts at the time of the run (empty, zero or NaN when not in
+the catalogue): `kind`, `base`, `quote`, `size_unit`, `units_per_contract`,
+`units_per_price`, `funding_interval_s`, `tick`, `lot`. Runs limited by
+`-venue` or `-symbol` leave it alone; full runs rewrite it. `query` defines an
+`instruments` view over these files.
 
 There are two ways to fill `parquet/`:
 
