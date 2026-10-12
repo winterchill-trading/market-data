@@ -19,7 +19,8 @@ module Stats : sig
     ; disconnects : int
     ; events : int (** events written *)
     ; frame_errors : int (** frames the normalizer rejected *)
-    ; first_errors : Error.t list (** up to 10, for the report *)
+    ; first_errors : Error.t list
+    (** up to 10, tagged with the file relative to [data_dir] *)
     ; skipped_files : int (** minute files of venues without a normalizer *)
     ; skipped_venues : Venue.t list
     }

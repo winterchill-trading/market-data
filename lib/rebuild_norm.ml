@@ -82,7 +82,17 @@ let run ~normalizers ~data_dir ~out_dir date =
                    events := !events + List.length evs;
                    List.iter evs ~f:(Event_log.Writer.append writer)
                  | Error e ->
-                   note_error (Error.tag_s e ~tag:[%message "" ~file:file.path])))))
+                   note_error
+                     (Error.tag_s
+                        e
+                        ~tag:
+                          [%message
+                            ""
+                              ~file:
+                                (Option.value
+                                   (String.chop_prefix file.path ~prefix:(data_dir ^ "/"))
+                                   ~default:file.path
+                                 : string)])))))
     in
     let%map () = Event_log.Writer.close writer in
     Or_error.map result ~f:(fun () ->
