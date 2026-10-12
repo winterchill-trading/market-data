@@ -4,7 +4,8 @@
   (flags
    (:standard -source-tree-root .))
   (deps
-   (source_tree fixtures)))
+   (source_tree fixtures)
+   ../queries/lead_lag.sql))
  (libraries core async market-data zstd)
  (preprocess
   (pps ppx_jane)))
