@@ -23,3 +23,9 @@ val bin_round_trip
   -> equal:('a -> 'a -> bool)
   -> 'a
   -> unit
+
+(** Runs [f] in a fresh temporary directory, removed afterwards. *)
+val with_temp_dir : (string -> 'a Async.Deferred.t) -> 'a Async.Deferred.t
+
+(** [path] relative to [dir], for stable expect output. *)
+val relative : dir:string -> string -> string

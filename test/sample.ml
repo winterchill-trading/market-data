@@ -21,3 +21,18 @@ let bin_round_trip (type a) (module M : Binable.S with type t = a) ~equal (v : a
   let v' = Binable.of_string (module M) s in
   printf "bin_io: %d bytes, round trip %b\n" (String.length s) (equal v v')
 ;;
+
+let with_temp_dir f =
+  let open Async in
+  let%bind dir = Unix.mkdtemp (Filename.temp_dir_name ^/ "market-data-test") in
+  Monitor.protect
+    (fun () -> f dir)
+    ~finally:(fun () ->
+      Process.run_expect_no_stdout_exn ~prog:"rm" ~args:[ "-rf"; dir ] ())
+;;
+
+let relative ~dir path =
+  match String.chop_prefix path ~prefix:(dir ^ "/") with
+  | Some p -> p
+  | None -> path
+;;
