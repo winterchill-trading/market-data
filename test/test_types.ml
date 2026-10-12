@@ -84,3 +84,32 @@ let%expect_test "funding" =
     bin_io: 62 bytes, round trip true
     |}]
 ;;
+
+let%expect_test "candle" =
+  print_endline [%bin_digest: Candle.Stable.V1.t];
+  let p = Price.of_string in
+  let c : Candle.t =
+    { instrument = Sample.btc
+    ; interval = Time_ns.Span.minute
+    ; open_time = Sample.ts 0
+    ; open_ = p "100"
+    ; high = p "101"
+    ; low = p "99"
+    ; close = p "100.5"
+    ; volume = Size.of_string "12.25"
+    ; trade_count = 42
+    }
+  in
+  print_s [%sexp (c : Candle.t)];
+  print_s [%sexp (Candle.close_time c : Time_ns.Alternate_sexp.t)];
+  Sample.bin_round_trip (module Candle) ~equal:Candle.equal c;
+  [%expect
+    {|
+    9fafd26753c1a9487850f67464634f9e
+    ((instrument ((venue Binance) (symbol BTCUSDT))) (interval 1m)
+     (open_time (2026-01-01 00:00:00.000000000Z)) (open_ 100) (high 101)
+     (low 99) (close 100.5) (volume 12.25) (trade_count 42))
+    "2026-01-01 00:01:00Z"
+    bin_io: 69 bytes, round trip true
+    |}]
+;;
