@@ -165,6 +165,29 @@ There are two ways to fill `parquet/`:
   to the Parquet thread in 64k-row batches instead of one call per pipe chunk
   took the sequential run from 23.6 s to 6.0 s.
 
+  Day close writes row groups of 65,536 rows (`-row-group N`,
+  `Day_close.default_row_group_rows`); it used to write 1,048,576. Each row
+  group carries min and max statistics per column, so DuckDB skips the groups
+  a time filter rules out, and it scans row groups in parallel. On a synthetic
+  day of 2M Binance trades (one file, 12.8 MB at 1M rows per group, 13.1 MB at
+  64k), DuckDB 1.5.6 on an M-series Mac, `PRAGMA threads=1`:
+
+  ```sql
+  EXPLAIN ANALYZE SELECT count(*) AS n, avg(price::DOUBLE) AS avg_price FROM trades
+  WHERE recv_ts >= TIMESTAMP_NS '2026-01-01 12:00:00'
+    AND recv_ts <  TIMESTAMP_NS '2026-01-01 12:05:00';
+  ```
+
+  | Row group | Total Time (5 runs) | Rows out of TABLE_SCAN |
+  | --- | --- | --- |
+  | 1,048,576 (before) | 11.6 to 12.6 ms | 6,945 |
+  | 65,536 (now) | 1.8 to 2.3 ms | 6,945 |
+
+  A full-day `count(*), avg(price)` with default threads went from 6.7 ms to
+  2.8 ms; writing the table took about the same time (2.0 s against 2.1 s).
+  The manifest code version changed with the default (`day-close-2`), so the
+  next run rewrites every table once; another `-row-group` needs `-force`.
+
 Files are written as `<name>.tmp` and renamed when complete, so readers
 globbing `*.parquet` never see a partial file.
 
