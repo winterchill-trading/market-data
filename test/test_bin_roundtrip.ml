@@ -28,6 +28,7 @@ let%expect_test "every stable type survives a bin_io round trip" =
   round_trip "l2 kind" (module L2_update.Kind.Stable.V1);
   round_trip "l2 update" (module L2_update.Stable.V1);
   round_trip "funding" (module Funding.Stable.V1);
+  round_trip "funding v2" (module Funding.Stable.V2);
   round_trip "candle" (module Candle.Stable.V1);
   round_trip "event" (module Event.Stable.V1);
   round_trip "frame log record" (module Frame_log.Record.Stable.V1);
@@ -45,6 +46,7 @@ let%expect_test "every stable type survives a bin_io round trip" =
     l2 kind
     l2 update
     funding
+    funding v2
     candle
     event
     frame log record

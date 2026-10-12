@@ -85,6 +85,59 @@ let%expect_test "funding" =
     |}]
 ;;
 
+let%expect_test "funding v2: optional exch_ts and conversions" =
+  print_endline [%bin_digest: Funding.Stable.V2.t];
+  let f : Funding.t =
+    { instrument = Sample.btc
+    ; exch_ts = Sample.ts 0
+    ; recv_ts = Sample.ts 3
+    ; rate = 0.000125
+    ; next_funding_time = Sample.ts 3_600_000
+    ; mark_price = Price.of_string "100.2"
+    ; index_price = Price.of_string "100.18"
+    }
+  in
+  let no_exch = { f with exch_ts = f.recv_ts } in
+  let show (v2 : Funding.Stable.V2.t) =
+    print_s
+      [%message
+        ""
+          ~exch_ts:(Option.map v2.exch_ts ~f:Time_ns.to_int_ns_since_epoch : int option)
+          ~bytes:(String.length (Binable.to_string (module Funding.Stable.V2) v2) : int)]
+  in
+  show (Funding.Stable.V2.of_v1 f);
+  show (Funding.to_v2 f);
+  show (Funding.to_v2 no_exch);
+  print_s [%sexp (Funding.equal (Funding.of_v2 (Funding.to_v2 no_exch)) no_exch : bool)];
+  [%expect
+    {|
+    977aa64a128f63b499a08e8f8882e07c
+    ((exch_ts (1767225600000000000)) (bytes 63))
+    ((exch_ts (1767225600000000000)) (bytes 63))
+    ((exch_ts ()) (bytes 54))
+    true
+    |}];
+  Quickcheck.test
+    Funding.Stable.V1.quickcheck_generator
+    ~sexp_of:Funding.Stable.V1.sexp_of_t
+    ~f:(fun v1 ->
+      [%test_result: Funding.Stable.V1.t]
+        ~expect:v1
+        (Funding.Stable.V2.to_v1 (Funding.Stable.V2.of_v1 v1));
+      [%test_result: Funding.Stable.V1.t] ~expect:v1 (Funding.of_v2 (Funding.to_v2 v1)));
+  Quickcheck.test
+    Funding.Stable.V2.quickcheck_generator
+    ~sexp_of:Funding.Stable.V2.sexp_of_t
+    ~f:(fun v2 ->
+      let back = Funding.to_v2 (Funding.of_v2 v2) in
+      let expect =
+        match v2.exch_ts with
+        | Some ts when Time_ns.equal ts v2.recv_ts -> { v2 with exch_ts = None }
+        | _ -> v2
+      in
+      [%test_result: Funding.Stable.V2.t] ~expect back)
+;;
+
 let%expect_test "candle" =
   print_endline [%bin_digest: Candle.Stable.V1.t];
   let p = Price.of_string in
