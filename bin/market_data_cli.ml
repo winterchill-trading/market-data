@@ -11,7 +11,7 @@ let dir_flag =
 
 (* Runs [day-close] for each instrument in its own process, at most [processes] at once,
    and prints their output in instrument order. *)
-let day_close_processes ~processes ~dir ~date ~force ~jobs instruments =
+let day_close_processes ~processes ~dir ~date ~force ~jobs ~row_group_rows instruments =
   let%bind outputs =
     Deferred.List.map
       instruments
@@ -31,6 +31,8 @@ let day_close_processes ~processes ~dir ~date ~force ~jobs instruments =
              ; Symbol.to_string (Instrument.symbol instrument)
              ; "-jobs"
              ; Int.to_string jobs
+             ; "-row-group"
+             ; Int.to_string row_group_rows
              ]
              @ if force then [ "-force" ] else [])
           ())
@@ -68,6 +70,14 @@ let day_close =
          "-jobs"
          (optional_with_default 1 int)
          ~doc:"N tables to convert at once (default 1)"
+     and row_group_rows =
+       flag
+         "-row-group"
+         (optional_with_default Day_close.default_row_group_rows int)
+         ~doc:
+           (sprintf
+              "N rows per Parquet row group (default %d)"
+              Day_close.default_row_group_rows)
      and processes =
        flag
          "-processes"
@@ -101,11 +111,20 @@ let day_close =
            | None -> Store.instruments (Store.create dir)
          in
          let%bind () =
-           day_close_processes ~processes ~dir ~date ~force ~jobs instruments
+           day_close_processes
+             ~processes
+             ~dir
+             ~date
+             ~force
+             ~jobs
+             ~row_group_rows
+             instruments
          in
          write_instruments ~dir ~date ~all)
        else (
-         let%bind results = Day_close.run ~force ~jobs ?instruments ~dir date in
+         let%bind results =
+           Day_close.run ~force ~jobs ~row_group_rows ?instruments ~dir date
+         in
          List.iter results ~f:(fun (r : Day_close.Result.t) ->
            match r.outcome with
            | No_source -> ()
