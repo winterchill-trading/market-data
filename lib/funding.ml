@@ -16,3 +16,19 @@ module Stable = struct
 end
 
 include Stable.V1
+
+let eight_hours = Time_ns.Span.of_hr 8.
+
+let normalized_8h ?funding_interval ?catalogue t =
+  let interval =
+    match funding_interval with
+    | Some _ -> funding_interval
+    | None ->
+      Option.bind (Instrument_info.lookup ?catalogue t.instrument) ~f:(fun info ->
+        info.funding_interval)
+  in
+  Option.bind interval ~f:(fun interval ->
+    if Time_ns.Span.( <= ) interval Time_ns.Span.zero
+    then None
+    else Some (t.rate *. Time_ns.Span.( // ) eight_hours interval))
+;;

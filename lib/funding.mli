@@ -27,3 +27,14 @@ type t = Stable.V1.t =
   ; index_price : Price.t
   }
 [@@deriving bin_io, sexp, compare, equal, fields]
+
+(** [rate] scaled to an 8 hour interval, for comparing venues that fund at different
+    intervals: [rate *. 8h /. funding_interval]. The interval defaults to the instrument's
+    {!Instrument_info.funding_interval} in [catalogue] (default
+    {!Instrument_info.catalogue}); [None] when the instrument is unknown or has no
+    interval. *)
+val normalized_8h
+  :  ?funding_interval:Time_ns.Span.t
+  -> ?catalogue:Instrument_info.t list
+  -> t
+  -> float option
