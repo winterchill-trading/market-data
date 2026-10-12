@@ -69,29 +69,71 @@ let of_files ?speed ?time_source files =
   of_events ?speed ?time_source (Event_log.read_merged files)
 ;;
 
+(* Per instrument: where its replay starts, and the snapshot to deliver first. *)
+let starts ~dir ~streams instruments start_at =
+  Deferred.List.map instruments ~how:`Sequential ~f:(fun instrument ->
+    let%map entry =
+      if List.mem streams Md_stream.L2 ~equal:Md_stream.equal
+      then Snapshot_index.find ~dir instrument start_at
+      else return None
+    in
+    match entry with
+    | Some e -> instrument, e.at, Some (Event.L2 e.book)
+    | None -> instrument, start_at, None)
+;;
+
+let from_start events starts =
+  let start_of = Instrument.Table.create () in
+  List.iter starts ~f:(fun (instrument, at, _) ->
+    Hashtbl.set start_of ~key:instrument ~data:at);
+  let after_start =
+    Pipe.filter events ~f:(fun e ->
+      match Hashtbl.find start_of (Event.instrument e) with
+      | Some at -> Time_ns.( >= ) (Event.recv_ts e) at
+      | None -> true)
+  in
+  let snapshots =
+    List.filter_map starts ~f:(fun (_, _, snapshot) -> snapshot)
+    |> List.stable_sort ~compare:Event.compare_by_recv_ts
+  in
+  Merge.sorted [ Pipe.of_list snapshots; after_start ] ~compare:Event.compare_by_recv_ts
+;;
+
 let of_range
   ?speed
   ?time_source
   ?(streams = [ Md_stream.Trades; Bbo; L2; Funding ])
+  ?start_at
   ~dir
   instruments
   ~from
   ~to_
   =
   let store = Store.create dir in
-  let%map files =
+  let from =
+    match start_at with
+    | Some t -> Date.max from (Store.date_of_time t)
+    | None -> from
+  in
+  let%bind files =
     Deferred.List.concat_map instruments ~how:`Sequential ~f:(fun instrument ->
       Store.files store Norm instrument streams ~from ~to_)
   in
   if List.is_empty files
   then
-    Or_error.error_s
-      [%message
-        "Replay_feed: no event log files in the date range"
-          (dir : string)
-          (instruments : Instrument.t list)
-          (streams : Md_stream.t list)
-          (from : Date.t)
-          (to_ : Date.t)]
-  else Ok (of_files ?speed ?time_source files)
+    return
+      (Or_error.error_s
+         [%message
+           "Replay_feed: no event log files in the date range"
+             (dir : string)
+             (instruments : Instrument.t list)
+             (streams : Md_stream.t list)
+             (from : Date.t)
+             (to_ : Date.t)])
+  else (
+    match start_at with
+    | None -> return (Ok (of_files ?speed ?time_source files))
+    | Some start_at ->
+      let%map starts = starts ~dir ~streams instruments start_at in
+      Ok (of_events ?speed ?time_source (from_start (Event_log.read_merged files) starts)))
 ;;
