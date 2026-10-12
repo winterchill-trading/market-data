@@ -2,28 +2,31 @@ open! Core
 module Md_stream = Stream
 open! Async
 
-let of_events ?(speed = 1.) ?(time_source = Time_source.wall_clock ()) events : Feed.t =
+let of_items ?(speed = 1.) ?(time_source = Time_source.wall_clock ()) items
+  : Feed.With_gaps.t
+  =
   if Float.( < ) speed 0. || Float.is_nan speed
   then raise_s [%message "Replay_feed: speed must be >= 0" (speed : float)];
   let trades_r, trades_w = Pipe.create () in
   let bbo_r, bbo_w = Pipe.create () in
   let l2_r, l2_w = Pipe.create () in
   let funding_r, funding_w = Pipe.create () in
+  let gaps_r, gaps_w = Pipe.create () in
   let stopped = Ivar.create () in
   let close_all () =
     Ivar.fill_if_empty stopped ();
-    Pipe.close_read events;
+    Pipe.close_read items;
     Pipe.close trades_w;
     Pipe.close bbo_w;
     Pipe.close l2_w;
-    Pipe.close funding_w
+    Pipe.close funding_w;
+    Pipe.close gaps_w
   in
   let start = ref None in
-  let wait_for event =
+  let wait_for recv_ts =
     if Float.equal speed 0.
     then return ()
     else (
-      let recv_ts = Event.recv_ts event in
       let first_ts, wall_start =
         match !start with
         | Some s -> s
@@ -36,18 +39,25 @@ let of_events ?(speed = 1.) ?(time_source = Time_source.wall_clock ()) events : 
       Deferred.any_unit
         [ Time_source.at time_source (Time_ns.add wall_start offset); Ivar.read stopped ])
   in
-  let deliver : Event.t -> unit Deferred.t = function
-    | Trade x -> Pipe.write_if_open trades_w x
-    | Bbo x -> Pipe.write_if_open bbo_w x
-    | L2 x -> Pipe.write_if_open l2_w x
-    | Funding x -> Pipe.write_if_open funding_w x
+  let deliver = function
+    | `Event (Event.Trade x) -> Pipe.write_if_open trades_w x
+    | `Event (Bbo x) -> Pipe.write_if_open bbo_w x
+    | `Event (L2 x) -> Pipe.write_if_open l2_w x
+    | `Event (Funding x) -> Pipe.write_if_open funding_w x
+    | `Gap gap ->
+      Pipe.write_without_pushback_if_open gaps_w gap;
+      return ()
+  in
+  let recv_ts = function
+    | `Event e -> Event.recv_ts e
+    | `Gap (g : Gap.t) -> g.recv_ts
   in
   let finished =
     Monitor.protect
       (fun () ->
-        Pipe.iter events ~f:(fun event ->
-          let%bind () = wait_for event in
-          deliver event))
+        Pipe.iter items ~f:(fun item ->
+          let%bind () = wait_for (recv_ts item) in
+          deliver item))
       ~finally:(fun () ->
         close_all ();
         return ())
@@ -57,12 +67,19 @@ let of_events ?(speed = 1.) ?(time_source = Time_source.wall_clock ()) events : 
     let bbo = bbo_r
     let l2 = l2_r
     let funding = funding_r
+    let gaps = gaps_r
 
     let close () =
       close_all ();
       finished
     ;;
   end)
+;;
+
+let of_events ?speed ?time_source events =
+  let items = Pipe.map events ~f:(fun e -> `Event e) in
+  upon (Pipe.closed items) (fun () -> Pipe.close_read events);
+  Feed.With_gaps.to_feed (of_items ?speed ?time_source items)
 ;;
 
 let of_files ?speed ?time_source files =
