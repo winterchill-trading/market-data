@@ -1,4 +1,5 @@
 open! Core
+module Md_stream = Stream
 open! Async
 
 let of_events ?(speed = 1.) ?(time_source = Time_source.wall_clock ()) events : Feed.t =
@@ -66,4 +67,31 @@ let of_events ?(speed = 1.) ?(time_source = Time_source.wall_clock ()) events : 
 
 let of_files ?speed ?time_source files =
   of_events ?speed ?time_source (Event_log.read_merged files)
+;;
+
+let of_range
+  ?speed
+  ?time_source
+  ?(streams = [ Md_stream.Trades; Bbo; L2; Funding ])
+  ~dir
+  instruments
+  ~from
+  ~to_
+  =
+  let store = Store.create dir in
+  let%map files =
+    Deferred.List.concat_map instruments ~how:`Sequential ~f:(fun instrument ->
+      Store.files store Norm instrument streams ~from ~to_)
+  in
+  if List.is_empty files
+  then
+    Or_error.error_s
+      [%message
+        "Replay_feed: no event log files in the date range"
+          (dir : string)
+          (instruments : Instrument.t list)
+          (streams : Md_stream.t list)
+          (from : Date.t)
+          (to_ : Date.t)]
+  else Ok (of_files ?speed ?time_source files)
 ;;
