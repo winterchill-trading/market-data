@@ -75,3 +75,113 @@ let load_file bin_reader path =
   let%map tail in
   values, tail
 ;;
+
+module Writer = struct
+  module W = Async.Writer
+
+  type 'a t =
+    { bin_writer : 'a Bin_prot.Type_class.writer
+    ; path_for_date : Date.t -> string
+    ; flush_bytes : int
+    ; buffer : Buffer.t
+    ; mutable buffer_date : Date.t option
+    ; sequencer : unit Throttle.Sequencer.t
+    ; mutable file : (Date.t * W.t) option
+    ; mutable files : string list (** most recent first *)
+    ; mutable closed : bool
+    ; stop : unit Ivar.t
+    }
+
+  let utc_date time = Time_ns.to_date time ~zone:Time_float.Zone.utc
+
+  let close_file t =
+    match t.file with
+    | None -> return ()
+    | Some (_, w) ->
+      t.file <- None;
+      W.close w
+  ;;
+
+  let file_for t date =
+    match t.file with
+    | Some (d, w) when Date.equal d date -> return w
+    | _ ->
+      let%bind () = close_file t in
+      let path = t.path_for_date date in
+      let%bind () = Unix.mkdir ~p:() (Filename.dirname path) in
+      let%map w = W.open_file ~append:true path in
+      t.file <- Some (date, w);
+      t.files <- path :: t.files;
+      w
+  ;;
+
+  let write_chunk t date data =
+    Throttle.enqueue t.sequencer (fun () ->
+      let%bind w = file_for t date in
+      W.write w data;
+      W.flushed w)
+  ;;
+
+  let flush_buffer t =
+    match t.buffer_date with
+    | Some date when Buffer.length t.buffer > 0 ->
+      let data = Buffer.contents t.buffer in
+      Buffer.clear t.buffer;
+      write_chunk t date data
+    | _ -> Throttle.enqueue t.sequencer (fun () -> return ())
+  ;;
+
+  let create
+    ?(flush_interval = Time_ns.Span.of_int_ms 100)
+    ?(flush_bytes = 1024 * 1024)
+    bin_writer
+    ~path_for_date
+    ()
+    =
+    let t =
+      { bin_writer
+      ; path_for_date
+      ; flush_bytes
+      ; buffer = Buffer.create 4096
+      ; buffer_date = None
+      ; sequencer = Throttle.Sequencer.create ()
+      ; file = None
+      ; files = []
+      ; closed = false
+      ; stop = Ivar.create ()
+      }
+    in
+    Clock_ns.every
+      ~stop:(Ivar.read t.stop)
+      ~continue_on_error:false
+      flush_interval
+      (fun () -> if Buffer.length t.buffer > 0 then don't_wait_for (flush_buffer t));
+    t
+  ;;
+
+  let append t v ~time =
+    if t.closed then raise_s [%message "Framed.Writer.append: writer is closed"];
+    let date = utc_date time in
+    (match t.buffer_date with
+     | Some d when Date.equal d date -> ()
+     | _ ->
+       if Buffer.length t.buffer > 0 then don't_wait_for (flush_buffer t);
+       t.buffer_date <- Some date);
+    Buffer.add_string t.buffer (encode t.bin_writer v);
+    if Buffer.length t.buffer >= t.flush_bytes then don't_wait_for (flush_buffer t)
+  ;;
+
+  let flush t = flush_buffer t
+
+  let close t =
+    if t.closed
+    then Throttle.enqueue t.sequencer (fun () -> return ())
+    else (
+      t.closed <- true;
+      Ivar.fill_if_empty t.stop ();
+      let%bind () = flush_buffer t in
+      Throttle.enqueue t.sequencer (fun () -> close_file t))
+  ;;
+
+  let files t = List.rev t.files
+end

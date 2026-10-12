@@ -34,3 +34,35 @@ val read_file
 
 (** All complete frames of [path], and its tail. *)
 val load_file : 'a Bin_prot.Type_class.reader -> string -> ('a list * Tail.t) Deferred.t
+
+(** Buffered append-only writer with daily files.
+
+    Each value is appended with a timestamp; its UTC date picks the file
+    ([path_for_date]), so a new file starts with the first value of each day. Missing
+    directories are created. Encoded frames are buffered and written out every
+    [flush_interval] (default 100ms), when the buffer reaches [flush_bytes] (default 1
+    MiB), on {!flush}, and on {!close}. Files are opened in append mode, so restarting a
+    writer on the same day continues the existing file. *)
+module Writer : sig
+  type 'a t
+
+  val create
+    :  ?flush_interval:Time_ns.Span.t
+    -> ?flush_bytes:int
+    -> 'a Bin_prot.Type_class.writer
+    -> path_for_date:(Date.t -> string)
+    -> unit
+    -> 'a t
+
+  (** Raises if [t] is closed. *)
+  val append : 'a t -> 'a -> time:Time_ns.t -> unit
+
+  (** Becomes determined once everything appended so far is handed to the OS. *)
+  val flush : _ t -> unit Deferred.t
+
+  (** Flushes and closes the current file. Idempotent. *)
+  val close : _ t -> unit Deferred.t
+
+  (** Files opened so far, in order. *)
+  val files : _ t -> string list
+end
