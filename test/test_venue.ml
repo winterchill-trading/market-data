@@ -18,3 +18,11 @@ let%expect_test "venue names round trip" =
     ()
     |}]
 ;;
+
+let%expect_test "stream names round trip" =
+  List.iter Stream.all ~f:(fun s ->
+    let name = Stream.to_string s in
+    assert (Stream.equal s (Stream.of_string name));
+    print_endline name);
+  [%expect {| |}]
+;;
