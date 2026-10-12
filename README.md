@@ -97,6 +97,7 @@ read, so never regenerate them.
 | `Event_log` | normalized events routed to per-stream daily files |
 | `Candle_agg` | trades to aligned candles (1s..1d), empty intervals carry the close |
 | `Feed` | module type of a market data source: one pipe per stream plus `close` |
+| `Snapshot_index` | periodic full L2 books in `norm/l2/_snapshots/<date>.bin`, written by `Event_log.Writer ~snapshot_interval` |
 | `Replay_feed` | a `Feed.t` replaying `Event_log` files, paced by `recv_ts` with a speed factor (0 = as fast as possible) |
 | `Store` | paths, day and instrument listing, file selection by date range |
 | `Parquet_kind` | parquet tables (`trades`, `bbo`, `l2`, `funding`, `candles`) and their paths |
@@ -228,7 +229,13 @@ instrument's catalogued `funding_interval` (Hyperliquid and Kraken Futures fund
 hourly, the others every 8 hours), so venues compare directly.
 
 `Replay_feed.of_range` replays the files of instruments and a date range and
-fails, naming the range, when there are none.
+fails, naming the range, when there are none. With `~start_at` it starts each
+instrument at its last `Snapshot_index` entry at or before that time: the book
+arrives first as an L2 snapshot, then the events from the entry's minute on,
+so a replay can begin mid-day without reading from midnight. Snapshots are
+written only by an `Event_log.Writer` created with `~snapshot_interval`
+(e.g. one minute); the entry at `at` holds every L2 update received before
+`at`.
 
 ### From Python
 
