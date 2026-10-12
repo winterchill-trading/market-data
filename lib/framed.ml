@@ -112,8 +112,6 @@ module Writer = struct
     ; stop : unit Ivar.t
     }
 
-  let utc_date time = Time_ns.to_date time ~zone:Time_float.Zone.utc
-
   let close_file t =
     match t.file with
     | None -> return ()
@@ -196,7 +194,7 @@ module Writer = struct
 
   let append t v ~time =
     if t.closed then raise_s [%message "Framed.Writer.append: writer is closed"];
-    let date = utc_date time in
+    let date = Store.date_of_time time in
     (match t.buffer_date with
      | Some d when Date.equal d date -> ()
      | _ ->
