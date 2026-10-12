@@ -47,6 +47,17 @@ let day_close =
          | Up_to_date -> printf "up to date %s\n" r.path
          | Written { rows; tail } ->
            printf "wrote %s (%d rows)\n" r.path rows;
+           Option.iter r.stats ~f:(fun (s : Day_close.Stats.t) ->
+             printf
+               !"  %s: %d frames (%d bytes) in, %d bytes out, %{Time_ns.Span} %s\n"
+               (Parquet_kind.to_string r.kind)
+               s.input_frames
+               s.input_bytes
+               s.output_bytes
+               s.elapsed
+               (match s.replaced_parts with
+                | [] -> ""
+                | parts -> "replaced " ^ String.concat ~sep:" " parts));
            (match tail with
             | Clean -> ()
             | tail -> print_s [%message "  damaged source" (tail : Framed.Tail.t)])))
