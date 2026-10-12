@@ -24,5 +24,11 @@ let%expect_test "stream names round trip" =
     let name = Stream.to_string s in
     assert (Stream.equal s (Stream.of_string name));
     print_endline name);
-  [%expect {| |}]
+  [%expect {|
+    trades
+    bbo
+    l2
+    funding
+    private
+    |}]
 ;;
