@@ -26,4 +26,5 @@
   bin_prot
   fixed-decimal
   exchange-core
+  parquet
   ppx_jane))

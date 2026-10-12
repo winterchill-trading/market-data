@@ -96,7 +96,7 @@ opam install . --deps-only --with-test
 dune build && dune test
 ```
 
-CI pins `fixed-decimal` and `exchange-core` from GitHub.
+CI pins `fixed-decimal`, `exchange-core` and `parquet` from GitHub.
 
 ## TODO
 
