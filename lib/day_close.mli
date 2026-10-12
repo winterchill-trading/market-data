@@ -3,13 +3,13 @@
 
     For each instrument, [norm/trades], [norm/bbo], [norm/l2] and [norm/funding] of the
     day become the tables of the same name, and the trades also become [candles] (default
-    interval one minute). Each written table gets a {!Manifest} next to it,
-    [<date>.manifest.sexp], recording its inputs (size and mtime), output size, row count
-    and {!Manifest.code_version}. A table is skipped when its [<date>.parquet] exists and
-    its manifest matches the current inputs and code version, so re-running is cheap; a
-    table without a manifest is rebuilt. When a table is rewritten, numbered parts
-    [<date>.<n>.parquet] left by a restarted sink are removed, since the rebuilt file
-    covers the whole day. *)
+    interval one minute). Each written table gets a {!Manifest},
+    [<kind dir>/_manifest/<date>.sexp], recording its inputs (size and mtime), output
+    size, row count and {!Manifest.code_version}. A table is skipped when its
+    [<date>.parquet] exists and its manifest matches the current inputs and code version,
+    so re-running is cheap; a table without a manifest is rebuilt. When a table is
+    rewritten, numbered parts [<date>.<n>.parquet] left by a restarted sink are removed,
+    since the rebuilt file covers the whole day. *)
 
 open! Core
 open! Async
@@ -47,7 +47,8 @@ module Manifest : sig
     }
   [@@deriving sexp, compare, equal]
 
-  (** [<dir>/<date>.manifest.sexp] for the table file [<dir>/<date>.parquet]. *)
+  (** [<dir>/_manifest/<date>.sexp] for the table file [<dir>/<date>.parquet]. Dataset
+      readers (pyarrow, Spark) skip directories starting with [_]. *)
   val path : string -> string
 
   (** The manifest of a table file, if present and readable. *)

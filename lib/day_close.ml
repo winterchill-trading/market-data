@@ -56,8 +56,13 @@ module Manifest = struct
     }
   [@@deriving sexp, compare, equal]
 
+  (* In a [_manifest] directory: pyarrow and Spark skip names starting with [_] when they
+     read the table directory as a dataset. *)
   let path target =
-    String.chop_suffix_if_exists target ~suffix:".parquet" ^ ".manifest.sexp"
+    Filename.dirname target
+    ^/ "_manifest"
+    ^/ String.chop_suffix_if_exists (Filename.basename target) ~suffix:".parquet"
+    ^ ".sexp"
   ;;
 
   let relative ~dir path =
@@ -91,7 +96,11 @@ module Manifest = struct
        | Error _ -> None)
   ;;
 
-  let save target t = Writer.save_sexp ~hum:true (path target) (sexp_of_t t)
+  let save target t =
+    let path = path target in
+    let%bind () = Unix.mkdir ~p:() (Filename.dirname path) in
+    Writer.save_sexp ~hum:true path (sexp_of_t t)
+  ;;
 
   let matches t ~inputs =
     String.equal t.code_version code_version && [%equal: Input.t list] t.inputs inputs
