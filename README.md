@@ -181,8 +181,8 @@ The tests read the Parquet files back with the `duckdb` CLI, which must be on
 
 CI pins `fixed-decimal`, `exchange-core` and `parquet` from GitHub.
 
-## TODO
+## Live feeds
 
-- Venue normalizers from `raw/` to `norm/` live in the venue protocol
-  libraries.
-- Live `Feed.S` implementations on top of the venue clients.
+`Feed.S` is implemented as `Live_feed` in `hl-client`, `binance-client` and
+`bybit-client`; `market-recorder` runs them and writes raw and normalized
+files. Rebuilding `norm/` from stored raw frames is not wired up yet.
