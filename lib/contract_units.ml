@@ -8,31 +8,16 @@ type t =
   }
 [@@deriving sexp_of, compare, equal]
 
-let v venue symbol token ~contract ~price =
-  { instrument = Instrument.create venue symbol
-  ; token
-  ; units_per_contract = contract
-  ; units_per_price = price
-  }
+let of_info (info : Instrument_info.t) =
+  Option.map (Instrument_info.units_per_contract info) ~f:(fun units_per_contract ->
+    { instrument = info.instrument
+    ; token = info.base
+    ; units_per_contract
+    ; units_per_price = info.units_per_price
+    })
 ;;
 
-let defaults =
-  [ v Binance "BTCUSDT" "BTC" ~contract:1. ~price:1.
-  ; v Binance "ETHUSDT" "ETH" ~contract:1. ~price:1.
-  ; v Binance "1000PEPEUSDT" "PEPE" ~contract:1000. ~price:1000.
-  ; v Bybit "BTCUSDT" "BTC" ~contract:1. ~price:1.
-  ; v Bybit "ETHUSDT" "ETH" ~contract:1. ~price:1.
-  ; v Bybit "1000PEPEUSDT" "PEPE" ~contract:1000. ~price:1000.
-  ; v Hyperliquid "BTC" "BTC" ~contract:1. ~price:1.
-  ; v Hyperliquid "ETH" "ETH" ~contract:1. ~price:1.
-  ; v Hyperliquid "kPEPE" "PEPE" ~contract:1000. ~price:1000.
-  ; v Okx "BTC-USDT-SWAP" "BTC" ~contract:0.01 ~price:1.
-  ; v Okx "ETH-USDT-SWAP" "ETH" ~contract:0.1 ~price:1.
-  ; v Coinbase "BTC-USD" "BTC" ~contract:1. ~price:1.
-  ; v Coinbase "ETH-USD" "ETH" ~contract:1. ~price:1.
-  ]
-;;
-
+let defaults = List.filter_map Instrument_info.catalogue ~f:of_info
 let quote s = "'" ^ String.substr_replace_all s ~pattern:"'" ~with_:"''" ^ "'"
 
 let create_table_sql ?csv () =

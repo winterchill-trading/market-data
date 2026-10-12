@@ -15,8 +15,12 @@ type t =
   }
 [@@deriving sexp_of, compare, equal]
 
-(** Known perpetual and spot listings. Not exhaustive: instruments missing here have no
-    row in the [units_per_contract] table unless a CSV adds them. *)
+(** The row of a catalogue entry; [None] for sizes in quote currency, whose token count
+    depends on the price. *)
+val of_info : Instrument_info.t -> t option
+
+(** {!of_info} over {!Instrument_info.catalogue}. Not exhaustive: instruments missing
+    there have no row in the [units_per_contract] table unless a CSV adds them. *)
 val defaults : t list
 
 (** [CREATE TABLE units_per_contract (venue, symbol, token, units_per_contract, units_per_price)]
