@@ -5,6 +5,7 @@ module Reason = struct
   type t =
     | Disconnect
     | Resync
+    | Damaged_log
   [@@deriving sexp, compare, equal]
 end
 

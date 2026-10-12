@@ -8,6 +8,7 @@ module Reason : sig
   type t =
     | Disconnect (** the connection dropped (an empty raw line when recorded) *)
     | Resync (** the feed detected a sequence break and resubscribed *)
+    | Damaged_log (** an event log ends in a truncated or corrupt frame *)
   [@@deriving sexp, compare, equal]
 end
 
