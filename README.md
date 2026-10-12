@@ -209,6 +209,22 @@ to `<root>/query-log.ndjson` before running (`-no-log` to skip).
 `Replay_feed.of_range` replays the files of instruments and a date range and
 fails, naming the range, when there are none.
 
+### From Python
+
+[`examples/query.py`](examples/query.py) reads the tables with DuckDB and with
+pyarrow (`pip install duckdb pyarrow pandas`; not run in CI). Notes for pandas:
+
+- `exch_ts`, `recv_ts`, `open_time` are `TIMESTAMP_NS` without a time zone
+  (`isAdjustedToUTC=false`), so they arrive as naive `datetime64[ns]` holding
+  UTC. Call `.dt.tz_localize("UTC")`, not `tz_convert`, to label them.
+- Nanoseconds survive into pandas; going through Python `datetime` objects
+  (e.g. `.to_pydatetime()`) truncates to microseconds.
+- Prices and sizes are `DECIMAL(18,8)`: pandas gets `decimal.Decimal` objects
+  (slow, object dtype). Cast to `DOUBLE` in SQL or `.astype("float64")` for
+  numeric work; keep the decimals when exact sums matter.
+- `candles.interval_ns` is an integer number of nanoseconds:
+  `pd.to_timedelta(df.interval_ns, unit="ns")`.
+
 ## Usage
 
 ```ocaml
