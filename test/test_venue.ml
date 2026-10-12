@@ -32,3 +32,14 @@ let%expect_test "stream names round trip" =
     private
     |}]
 ;;
+
+let%expect_test "instrument string form" =
+  let i = Instrument.create Bybit "BTCUSDT" in
+  print_endline (Instrument.to_string i);
+  print_s [%sexp (i : Instrument.t)];
+  assert (Instrument.equal i (Instrument.of_string (Instrument.to_string i)));
+  [%expect {|
+    bybit:BTCUSDT
+    ((venue Bybit) (symbol BTCUSDT))
+    |}]
+;;
