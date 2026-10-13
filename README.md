@@ -375,9 +375,24 @@ and `Gap { recv_ts; stream }` (an empty line) for every stream of the symbol,
 merged by `recv_ts`, with frames outside `[start, stop)` dropped. Each stream
 holds at most one decompressed minute in memory. `Rebuild_norm` and
 `Replay_feed.of_raw` both read through it. `dune exec bench/raw_reader_bench.exe`
-measures it: 600k lines of 140-byte frames over three streams take 0.9 to 1.2 s
-(0.5 to 0.7 M lines/s) on an M-series laptop; the per-line pipe merge, not
-timestamp parsing, is the bulk of it.
+measures it on 600k lines of 140-byte frames over three streams; `-merge-only`
+times `Merge.sorted` alone over in-memory int pipes.
+
+| arm64 laptop, best of 3 | before | after |
+| --- | --- | --- |
+| `Raw_reader.read`, dev | 0.65 M lines/s, 332 words/line | 2.7 M lines/s, 39 words/line |
+| `Raw_reader.read`, release | 0.65 M lines/s | 2.7 M lines/s |
+| `Raw_reader.read`, release `-O3` | 0.58 M lines/s | 2.8 M lines/s |
+| `Merge.sorted`, dev | 2.8 M values/s, 103 words/value | 19 M values/s, 13 words/value |
+
+The merge reads each input with `Pipe.read'` (batches of up to 4096), merges the
+buffers synchronously over a heap of input indices and writes one batch per
+refill; `Merge.sorted_by_key` compares immediate integer keys (the reader uses
+`recv_ts` in nanoseconds). `Raw_minute.iter_text` walks the decompressed text by
+index, parses the recorder's timestamp in place (falling back to
+`Time_ns.of_string_with_utc_offset` for any other form) and copies only the
+payload: 19 words for a 140-byte payload, pinned in `test/test_raw_minute.ml`.
+Words are exact; times vary with machine load, and CI (amd64) is not measured.
 
 `Replay_feed.of_raw ~normalizer ~data_dir ~symbol ~start ~stop ()` turns those
 frames into a `Feed.With_gaps.t`: each empty line resets the stream's normalizer
