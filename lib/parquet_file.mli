@@ -9,9 +9,12 @@ open! Async
 
 type 'a t
 
-(** Creates missing directories and starts [<path>.tmp]. *)
+(** Creates missing directories and starts [<path>.tmp]. With [direct] (one of
+    {!Parquet_schemas.Direct} for the same table), {!add} appends rows through it instead
+    of the schema accessors; the file is the same. *)
 val create
   :  ?compression:[ `None | `Zstd ]
+  -> ?direct:('a Parquet.Writer.t -> 'a -> unit)
   -> 'a Parquet.Schema.t
   -> row_group_rows:int
   -> string
@@ -22,6 +25,10 @@ val path : _ t -> string
 (** Appends rows; row groups are written as they fill. Do not call concurrently on one
     file. *)
 val add : 'a t -> 'a list -> unit Deferred.t
+
+(** Runs [f] on the underlying writer in the writer thread, like {!add}: for callers that
+    append rows column by column with {!Parquet.Writer.Direct}. *)
+val write : 'a t -> f:('a Parquet.Writer.t -> unit) -> unit Deferred.t
 
 val num_rows : _ t -> int
 
