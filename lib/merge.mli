@@ -6,8 +6,8 @@ open! Async
 (** [sorted inputs ~compare] yields the values of every input in [compare] order, assuming
     each input is already sorted. Ties go to the input earlier in the list, so the merge
     is deterministic. The output closes once all inputs are exhausted; closing the output
-    closes all inputs. Inputs are read in batches of up to 4096 values, merged without
-    a Deferred bind per value, and written to the output one batch at a time. *)
+    closes all inputs. Inputs are read in batches of up to 4096 values, merged without a
+    Deferred bind per value, and written to the output one batch at a time. *)
 val sorted : 'a Pipe.Reader.t list -> compare:('a -> 'a -> int) -> 'a Pipe.Reader.t
 
 (** [sorted_by_key inputs ~key] is
