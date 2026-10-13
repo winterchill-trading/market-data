@@ -120,3 +120,43 @@ let%expect_test "iter_text agrees with parsing each split line" =
     (Error ("Raw_minute: no space after the timestamp" 2026-01-01T00:00:03Z))
     |}]
 ;;
+
+let words_per_line ~lines f =
+  let before = Gc.minor_words () in
+  f ();
+  Float.of_int (Gc.minor_words () - before) /. Float.of_int lines
+;;
+
+let%expect_test "minor words per line: iter_text against split and parse" =
+  let lines = 1000 in
+  (* A 140-byte payload copies into 19 words (header and 18 data words). *)
+  let payload = String.make 140 'x' in
+  let text =
+    String.concat
+      (List.init lines ~f:(fun i ->
+         sprintf "2026-10-12T09:15:%02d.%06dZ %s\n" (i % 60) i payload))
+  in
+  let count = ref 0 in
+  let frame ~recv_ts:_ ~payload:_ = incr count in
+  let disconnect () = () in
+  let error _ = () in
+  let iter_words =
+    words_per_line ~lines (fun () -> Raw_minute.iter_text text ~frame ~disconnect ~error)
+  in
+  let split_words =
+    words_per_line ~lines (fun () ->
+      String.split text ~on:'\n'
+      |> List.iter ~f:(fun line -> ignore (reference_parse line : _ Or_error.t)))
+  in
+  printf
+    "frames %d\niter_text %.1f words per line\nsplit and parse %.1f\n"
+    !count
+    iter_words
+    split_words;
+  [%expect
+    {|
+    frames 1000
+    iter_text 19.0 words per line
+    split and parse 88.0
+    |}]
+;;
