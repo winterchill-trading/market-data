@@ -48,3 +48,24 @@ val funding : Funding.t Parquet.Schema.t
 (** [venue], [symbol], [interval_ns], [open_time], [open], [high], [low], [close],
     [volume], [trade_count]; no [exch_ts]/[recv_ts]. *)
 val candle : Candle.t Parquet.Schema.t
+
+(** The same tables written through {!Parquet.Writer.Direct}: no schema accessor closure
+    per cell, and no allocation per row once the writer's column buffers have grown.
+    Prices and sizes go in as their raw units, so the files are byte-identical to the ones
+    {!Parquet.Writer.add} writes with the schemas above.
+
+    [table w] looks the columns of [w] up once (raising if [w] was created with another
+    schema) and returns the function that appends one row; call it as often as needed. *)
+module Direct : sig
+  type 'a t = 'a Parquet.Writer.t -> 'a -> unit
+
+  val trade : Trade.t t
+  val bbo : Bbo.t t
+  val l2 : L2_row.t t
+
+  (** Appends the rows {!L2_row.of_update} would give, without building them. *)
+  val l2_update : L2_row.t Parquet.Writer.t -> seq:int -> L2_update.t -> unit
+
+  val funding : Funding.t t
+  val candle : Candle.t t
+end
