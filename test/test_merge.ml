@@ -30,6 +30,71 @@ let%test_unit "quickcheck: merge equals stable sort of the concatenation" =
         ~expect:(List.sort (List.concat lists) ~compare:Int.compare))
 ;;
 
+(* Inputs that deliver their values in random chunks, yielding between writes, so the
+   merge sees partial batches and runs dry mid-stream. *)
+let chunked values ~chunks =
+  Pipe.create_reader ~close_on_exception:true (fun w ->
+    let rec go values chunks =
+      match values, chunks with
+      | [], _ -> return ()
+      | _, [] -> Pipe.transfer_in w ~from:(Queue.of_list values)
+      | _, c :: chunks ->
+        let #(now, later) = List.split_n values (1 + c) in
+        let%bind () = Pipe.transfer_in w ~from:(Queue.of_list now) in
+        let%bind () = Scheduler.yield () in
+        go later chunks
+    in
+    go values chunks)
+;;
+
+let%test_unit "quickcheck: chunked inputs, both merges equal a stable sort" =
+  let input =
+    Quickcheck.Generator.(both (list (Int.gen_incl 0 7)) (list (Int.gen_incl 0 5)))
+  in
+  Quickcheck.test
+    ~sexp_of:[%sexp_of: (int list * int list) list]
+    (Quickcheck.Generator.list input)
+    ~f:(fun inputs ->
+      let lists =
+        List.mapi inputs ~f:(fun i (keys, _) ->
+          List.sort keys ~compare:Int.compare |> List.map ~f:(fun k -> k, i))
+      in
+      let expect =
+        List.stable_sort (List.concat lists) ~compare:(fun (a, _) (b, _) ->
+          Int.compare a b)
+      in
+      let pipes () =
+        List.map2_exn lists inputs ~f:(fun l (_, chunks) -> chunked l ~chunks)
+      in
+      let by_compare, by_key =
+        Thread_safe.block_on_async_exn (fun () ->
+          let%bind a =
+            Pipe.to_list
+              (Merge.sorted (pipes ()) ~compare:(fun (a, _) (b, _) -> Int.compare a b))
+          in
+          let%map b = Pipe.to_list (Merge.sorted_by_key (pipes ()) ~key:fst) in
+          a, b)
+      in
+      [%test_result: (int * int) list] by_compare ~expect;
+      [%test_result: (int * int) list] by_key ~expect)
+;;
+
+let%expect_test "closing the output closes every input" =
+  let a = Pipe.of_list [ 1; 2; 3 ] in
+  let b = Pipe.of_list [ 1; 2 ] in
+  let merged = Merge.sorted_by_key [ a; b ] ~key:Fn.id in
+  let%bind first = Pipe.read merged in
+  Pipe.close_read merged;
+  let%bind () = Scheduler.yield_until_no_jobs_remain () in
+  print_s
+    [%sexp
+      (first : [ `Eof | `Ok of int ])
+      , (Pipe.is_closed a : bool)
+      , (Pipe.is_closed b : bool)];
+  [%expect {| ((Ok 1) true true) |}];
+  return ()
+;;
+
 let eth = Instrument.create Hyperliquid "ETH"
 
 (* Trade, bbo and funding of two instruments with equal [recv_ts] across files. *)
