@@ -126,34 +126,40 @@ let remove_parts target =
     name)
 ;;
 
-let batch_rows = 65_536
+let batch_events = 65_536
 
-(* Streams [source] into [target], [f] turning each chunk of events into rows. [finish]
-   yields rows to append once the source is exhausted. *)
-let convert ?compression ~row_group_rows ~schema ~source ~target ~f ~finish () =
+(* Streams [source] into [target]. [write] looks the columns of the writer up once and
+   returns the function that appends the rows of one event (none for events of another
+   kind); [finish] appends the rows that are due once the source is exhausted. Both run in
+   the writer thread. *)
+let convert ?compression ~row_group_rows ~schema ~source ~target ~write ~finish () =
   let%bind file = Parquet_file.create ?compression schema ~row_group_rows target in
+  let%bind add_event = Parquet_file.write file ~f:write in
   let events, tail = Event_log.read_file source in
   let frames = ref 0 in
-  (* Rows are handed to the writer thread in batches: one [In_thread] hop per pipe chunk
-     (often a single event) costs more than the encoding. *)
+  (* Events are handed to the writer thread in batches: one [In_thread] hop per pipe chunk
+     (often a single event) costs more than the encoding. Each chunk is a fresh queue
+     ([Pipe.read'] hands over its buffer), so keeping it is safe. *)
   let pending = ref [] in
-  let pending_rows = ref 0 in
+  let pending_events = ref 0 in
   let hand_over () =
-    let rows = List.concat (List.rev !pending) in
-    pending := [];
-    pending_rows := 0;
-    Parquet_file.add file rows
+    match List.rev !pending with
+    | [] -> return ()
+    | chunks ->
+      pending := [];
+      pending_events := 0;
+      Parquet_file.write file ~f:(fun _ ->
+        List.iter chunks ~f:(fun chunk -> Queue.iter chunk ~f:add_event))
   in
   let%bind () =
     Pipe.iter' events ~f:(fun chunk ->
       frames := !frames + Queue.length chunk;
-      let rows = f (Queue.to_list chunk) in
-      pending := rows :: !pending;
-      pending_rows := !pending_rows + List.length rows;
-      if !pending_rows >= batch_rows then hand_over () else return ())
+      pending := chunk :: !pending;
+      pending_events := !pending_events + Queue.length chunk;
+      if !pending_events >= batch_events then hand_over () else return ())
   in
   let%bind () = hand_over () in
-  let%bind () = Parquet_file.add file (finish ()) in
+  let%bind () = Parquet_file.write file ~f:finish in
   let rows = Parquet_file.num_rows file in
   let%bind () = Parquet_file.close file in
   let%bind replaced_parts = remove_parts target in
@@ -183,56 +189,61 @@ let table ?compression ~row_group_rows ~candle_interval ~force ~dir instrument d
       return (Outcome.Up_to_date, None)
     | Some input, _ ->
       let%bind outcome, frames, replaced_parts =
-        let convert schema ~f ~finish =
-          convert ?compression ~row_group_rows ~schema ~source ~target ~f ~finish ()
+        let convert schema ~write ~finish =
+          convert ?compression ~row_group_rows ~schema ~source ~target ~write ~finish ()
         in
-        let no_more () = [] in
+        let no_more _ = () in
         match kind with
         | Trades ->
           convert
             Parquet_schemas.trade
-            ~f:
-              (List.filter_map ~f:(function
-                | Event.Trade t -> Some t
-                | _ -> None))
+            ~write:(fun w ->
+              let add = Parquet_schemas.Direct.trade w in
+              function
+              | Event.Trade t -> add t
+              | _ -> ())
             ~finish:no_more
         | Bbo ->
           convert
             Parquet_schemas.bbo
-            ~f:
-              (List.filter_map ~f:(function
-                | Event.Bbo b -> Some b
-                | _ -> None))
+            ~write:(fun w ->
+              let add = Parquet_schemas.Direct.bbo w in
+              function
+              | Event.Bbo b -> add b
+              | _ -> ())
             ~finish:no_more
         | Funding ->
           convert
             Parquet_schemas.funding
-            ~f:
-              (List.filter_map ~f:(function
-                | Event.Funding x -> Some x
-                | _ -> None))
+            ~write:(fun w ->
+              let add = Parquet_schemas.Direct.funding w in
+              function
+              | Event.Funding x -> add x
+              | _ -> ())
             ~finish:no_more
         | L2 ->
           let seq = ref 0 in
           convert
             Parquet_schemas.l2
-            ~f:
-              (List.concat_map ~f:(function
-                | Event.L2 u ->
-                  let rows = Parquet_schemas.L2_row.of_update ~seq:!seq u in
-                  incr seq;
-                  rows
-                | _ -> []))
+            ~write:(fun w ->
+              let add = Parquet_schemas.Direct.l2_update w in
+              function
+              | Event.L2 u ->
+                add ~seq:!seq u;
+                incr seq
+              | _ -> ())
             ~finish:no_more
         | Candles ->
           let agg = Candle_agg.create instrument ~interval:candle_interval in
           convert
             Parquet_schemas.candle
-            ~f:
-              (List.concat_map ~f:(function
-                | Event.Trade t -> Candle_agg.add agg t
-                | _ -> []))
-            ~finish:(fun () -> Option.to_list (Candle_agg.current agg))
+            ~write:(fun w ->
+              let add = Parquet_schemas.Direct.candle w in
+              function
+              | Event.Trade t -> List.iter (Candle_agg.add agg t) ~f:add
+              | _ -> ())
+            ~finish:(fun w ->
+              Option.iter (Candle_agg.current agg) ~f:(Parquet_schemas.Direct.candle w))
       in
       let%bind output = Manifest.stat target in
       let output_bytes =
