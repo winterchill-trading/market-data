@@ -112,27 +112,28 @@ let of_files ?(on_error = default_on_error) ?range ~stream files =
       else (
         match%bind
           In_thread.run (fun () ->
-            Or_error.try_with (fun () -> Raw_minute.read_lines_blocking file.path))
+            Or_error.try_with (fun () -> Raw_minute.read_text_blocking file.path))
         with
         | Error e ->
           on_error (Error.tag e ~tag:file.path);
           return ()
-        | Ok lines ->
+        | Ok text ->
           (* A gap at the start of a file sorts at the file's minute, not before it. *)
-          last
-          := Some
-               (Option.value_map !last ~default:file.minute ~f:(Time_ns.max file.minute));
+          let last_ts =
+            ref (Option.value_map !last ~default:file.minute ~f:(Time_ns.max file.minute))
+          in
           let items = Queue.create () in
-          List.iter lines ~f:(fun line ->
-            match Raw_minute.Line.parse line with
-            | Error e -> on_error (Error.tag e ~tag:file.path)
-            | Ok (Frame { recv_ts; payload }) ->
-              last := Some recv_ts;
+          Raw_minute.iter_text
+            text
+            ~frame:(fun ~recv_ts ~payload ->
+              last_ts := recv_ts;
               if in_range recv_ts
-              then Queue.enqueue items (Item.Frame { recv_ts; stream; frame = payload })
-            | Ok Disconnect ->
-              let recv_ts = Option.value_exn !last in
-              if in_range recv_ts then Queue.enqueue items (Item.Gap { recv_ts; stream }));
+              then Queue.enqueue items (Item.Frame { recv_ts; stream; frame = payload }))
+            ~disconnect:(fun () ->
+              let recv_ts = !last_ts in
+              if in_range recv_ts then Queue.enqueue items (Item.Gap { recv_ts; stream }))
+            ~error:(fun e -> on_error (Error.tag e ~tag:file.path));
+          last := Some !last_ts;
           if Pipe.is_closed w then return () else Pipe.transfer_in w ~from:items)))
 ;;
 
