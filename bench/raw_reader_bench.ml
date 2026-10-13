@@ -39,6 +39,25 @@ let write ~dir ~minutes ~lines_per_minute ~streams =
       Writer.save path ~contents:(Zstd.compress ~level:3 (Buffer.contents buf))))
 ;;
 
+let merge_only ~n =
+  let inputs =
+    List.init 3 ~f:(fun k -> Pipe.of_list (List.init n ~f:(fun i -> (3 * i) + k)))
+  in
+  let words0 = Gc.minor_words () in
+  let t0 = Time_ns.now () in
+  let%map count =
+    Merge.sorted inputs ~compare:Int.compare
+    |> Pipe.fold_without_pushback ~init:0 ~f:(fun n _ -> n + 1)
+  in
+  let secs = Time_ns.Span.to_sec (Time_ns.diff (Time_ns.now ()) t0) in
+  printf
+    "merge only: %d values in %.3fs: %.0f values/s, %.1f minor words per value\n"
+    count
+    secs
+    (Float.of_int count /. secs)
+    (Float.of_int (Gc.minor_words () - words0) /. Float.of_int count)
+;;
+
 let command =
   Command.async
     ~summary:"Lines per second through Raw_reader.read"
@@ -46,33 +65,41 @@ let command =
        flag "-minutes" (optional_with_default 10 int) ~doc:"N minute files per stream"
      and lines_per_minute =
        flag "-lines" (optional_with_default 20_000 int) ~doc:"N lines per minute file"
+     and merge =
+       flag
+         "-merge-only"
+         no_arg
+         ~doc:" time Merge.sorted over in-memory int pipes instead"
      in
      fun () ->
-       let streams = [ Stream.Trades; Bbo; L2 ] in
-       let dir = Filename_unix.temp_dir "raw-reader-bench" "" in
-       let%bind () = write ~dir ~minutes ~lines_per_minute ~streams in
-       let t0 = Time_ns.now () in
-       let%bind count, bytes =
-         Raw_reader.read
-           ~data_dir:dir
-           ~venue:Hyperliquid
-           ~symbol:"BTC"
-           ~start:(Time_ns.of_string_with_utc_offset "2026-01-01T00:00:00Z")
-           ~stop:(Time_ns.of_string_with_utc_offset "2026-01-02T00:00:00Z")
-           ()
-         |> Pipe.fold_without_pushback ~init:(0, 0) ~f:(fun (n, b) item ->
-           match (item : Raw_reader.Item.t) with
-           | Frame { frame; _ } -> n + 1, b + String.length frame
-           | Gap _ -> n + 1, b)
-       in
-       let secs = Time_ns.Span.to_sec (Time_ns.diff (Time_ns.now ()) t0) in
-       printf
-         "%d lines (%d MB of frames) in %.2fs: %.0f lines/s\n"
-         count
-         (bytes / 1_000_000)
-         secs
-         (Float.of_int count /. secs);
-       Unix.system_exn (sprintf "rm -rf %s" (Filename.quote dir)))
+       if merge
+       then merge_only ~n:(minutes * lines_per_minute)
+       else (
+         let streams = [ Stream.Trades; Bbo; L2 ] in
+         let dir = Filename_unix.temp_dir "raw-reader-bench" "" in
+         let%bind () = write ~dir ~minutes ~lines_per_minute ~streams in
+         let t0 = Time_ns.now () in
+         let%bind count, bytes =
+           Raw_reader.read
+             ~data_dir:dir
+             ~venue:Hyperliquid
+             ~symbol:"BTC"
+             ~start:(Time_ns.of_string_with_utc_offset "2026-01-01T00:00:00Z")
+             ~stop:(Time_ns.of_string_with_utc_offset "2026-01-02T00:00:00Z")
+             ()
+           |> Pipe.fold_without_pushback ~init:(0, 0) ~f:(fun (n, b) item ->
+             match (item : Raw_reader.Item.t) with
+             | Frame { frame; _ } -> n + 1, b + String.length frame
+             | Gap _ -> n + 1, b)
+         in
+         let secs = Time_ns.Span.to_sec (Time_ns.diff (Time_ns.now ()) t0) in
+         printf
+           "%d lines (%d MB of frames) in %.2fs: %.0f lines/s\n"
+           count
+           (bytes / 1_000_000)
+           secs
+           (Float.of_int count /. secs);
+         Unix.system_exn (sprintf "rm -rf %s" (Filename.quote dir))))
 ;;
 
 let () = Command_unix.run command
