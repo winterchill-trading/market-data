@@ -78,6 +78,7 @@ let command =
          let streams = [ Stream.Trades; Bbo; L2 ] in
          let dir = Filename_unix.temp_dir "raw-reader-bench" "" in
          let%bind () = write ~dir ~minutes ~lines_per_minute ~streams in
+         let words0 = Gc.minor_words () in
          let t0 = Time_ns.now () in
          let%bind count, bytes =
            Raw_reader.read
@@ -94,11 +95,12 @@ let command =
          in
          let secs = Time_ns.Span.to_sec (Time_ns.diff (Time_ns.now ()) t0) in
          printf
-           "%d lines (%d MB of frames) in %.2fs: %.0f lines/s\n"
+           "%d lines (%d MB of frames) in %.2fs: %.0f lines/s, %.1f minor words per line\n"
            count
            (bytes / 1_000_000)
            secs
-           (Float.of_int count /. secs);
+           (Float.of_int count /. secs)
+           (Float.of_int (Gc.minor_words () - words0) /. Float.of_int count);
          Unix.system_exn (sprintf "rm -rf %s" (Filename.quote dir))))
 ;;
 
