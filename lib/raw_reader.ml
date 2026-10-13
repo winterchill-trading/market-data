@@ -150,8 +150,8 @@ let read ?on_error ?streams:wanted ~data_dir ~venue ~symbol ~start ~stop () =
         of_files ?on_error ~range ~stream files)
     in
     let merged =
-      Merge.sorted inputs ~compare:(fun a b ->
-        Time_ns.compare (Item.recv_ts a) (Item.recv_ts b))
+      Merge.sorted_by_key inputs ~key:(fun item ->
+        Time_ns.to_int_ns_since_epoch (Item.recv_ts item))
     in
     upon (Pipe.closed w) (fun () -> Pipe.close_read merged);
     Pipe.transfer_id merged w)
