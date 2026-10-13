@@ -13,6 +13,7 @@ type 'a message =
 
 type 'a t =
   { schema : 'a Parquet.Schema.t
+  ; direct : ('a Parquet.Writer.t -> 'a -> unit) option
   ; dir : string
   ; instrument : Instrument.t
   ; kind : Parquet_kind.t
@@ -70,6 +71,7 @@ let writer_loop t reader =
       let%map f =
         Parquet_file.create
           ~compression:t.compression
+          ?direct:t.direct
           t.schema
           ~row_group_rows:t.row_group_rows
           path
@@ -92,6 +94,7 @@ let create
   ?(time_source = Time_source.wall_clock ())
   ?(compression = `Zstd)
   ?max_pending_rows
+  ?direct
   schema
   ~dir
   instrument
@@ -105,6 +108,7 @@ let create
   let writer_done = Ivar.create () in
   let t =
     { schema
+    ; direct
     ; dir
     ; instrument
     ; kind

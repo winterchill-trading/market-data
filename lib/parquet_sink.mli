@@ -19,11 +19,14 @@ open! Async
 type 'a t
 
 (** [time_source] defaults to the wall clock, [compression] to [`Zstd] and
-    [max_pending_rows] to [16 * row_group_rows]. *)
+    [max_pending_rows] to [16 * row_group_rows]. With [direct] (the
+    {!Parquet_schemas.Direct} writer of the same table) the writer job appends rows
+    through it, without allocating per row; the files are the same. *)
 val create
   :  ?time_source:Time_source.t
   -> ?compression:[ `None | `Zstd ]
   -> ?max_pending_rows:int
+  -> ?direct:('a Parquet.Writer.t -> 'a -> unit)
   -> 'a Parquet.Schema.t
   -> dir:string
   -> Instrument.t
