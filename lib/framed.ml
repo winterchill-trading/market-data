@@ -113,6 +113,47 @@ let scan_frames ?(start = 0) reader ~decode ~stop ~f =
   loop start
 ;;
 
+(* [scan_frames] without a deferred per frame: frames are decoded straight out of the
+   reader's buffer, a chunk at a time, and [f] runs synchronously; [pushback] is waited on
+   once per chunk. Same tail and offset as [scan_frames]. *)
+let scan_frames_chunked ?(start = 0) reader ~decode ~stop ~f ~pushback =
+  let offset = ref start in
+  let%map result =
+    Reader.read_one_chunk_at_a_time reader ~handle_chunk:(fun buf ~pos ~len ->
+      let rec go consumed =
+        let available = len - consumed in
+        if stop ()
+        then `Stop_consumed (Tail.Clean, consumed)
+        else if available < header_length
+        then `Consumed (consumed, `Need header_length)
+        else (
+          let frame = pos + consumed in
+          (* The size header is an 8-byte little-endian int64, as in
+             [Bin_prot.Utils.bin_read_size_header]. *)
+          let size = Bigstring.get_int64_le_trunc buf ~pos:frame in
+          if size < 0 || size > max_frame_size
+          then `Stop_consumed (Tail.Corrupt { offset = !offset }, consumed)
+          else if available < header_length + size
+          then `Consumed (consumed, `Need (header_length + size))
+          else (
+            match decode buf ~pos:(frame + header_length) ~size with
+            | None -> `Stop_consumed (Tail.Corrupt { offset = !offset }, consumed)
+            | Some v ->
+              f v;
+              offset := !offset + header_length + size;
+              go (consumed + header_length + size)))
+      in
+      match go 0 with
+      | `Consumed _ as consumed -> pushback () >>| fun () -> consumed
+      | `Stop_consumed _ as stop -> return stop)
+  in
+  match result with
+  | `Eof -> Tail.Clean, !offset
+  | `Stopped tail -> tail, !offset
+  | `Eof_with_unconsumed_data rest ->
+    Tail.Truncated { bytes = String.length rest }, !offset
+;;
+
 (* Skips the optional file header, then scans the frames. *)
 let scan_file ?digest ?(accept = []) ~path reader ~decode ~stop ~f =
   match%bind File_header.read reader with
@@ -125,10 +166,30 @@ let scan_file ?digest ?(accept = []) ~path reader ~decode ~stop ~f =
      | _ -> scan_frames ~start:File_header.length reader ~decode ~stop ~f)
 ;;
 
+let scan_file_chunked ?digest ?(accept = []) ~path reader ~decode ~stop ~f ~pushback =
+  match%bind File_header.read reader with
+  | `Truncated n -> return (Tail.Truncated { bytes = n }, 0)
+  | `Absent -> scan_frames_chunked reader ~decode ~stop ~f ~pushback
+  | `Digest found ->
+    (match digest with
+     | Some expected when not (File_header.accepts ~expected ~accept found) ->
+       File_header.mismatch ~path ~expected ~accept ~found
+     | _ ->
+       scan_frames_chunked ~start:File_header.length reader ~decode ~stop ~f ~pushback)
+;;
+
 let decode_with (bin_reader : _ Bin_prot.Type_class.reader) buf ~size =
   let pos_ref = ref 0 in
   match bin_reader.read buf ~pos_ref with
   | v when !pos_ref = size -> Some v
+  | _ -> None
+  | exception _ -> None
+;;
+
+let decode_at (bin_reader : _ Bin_prot.Type_class.reader) buf ~pos ~size =
+  let pos_ref = ref pos in
+  match bin_reader.read buf ~pos_ref with
+  | v when !pos_ref = pos + size -> Some v
   | _ -> None
   | exception _ -> None
 ;;
@@ -152,19 +213,42 @@ let read_file ?digest ?accept ?buf_len bin_reader path =
     Pipe.create_reader ~close_on_exception:true (fun w ->
       let%map t, _ =
         Reader.with_file ?buf_len path ~f:(fun reader ->
-          scan_file
+          scan_file_chunked
             ?digest
             ?accept
             ~path
             reader
-            ~decode:(decode_with bin_reader)
+            ~decode:(decode_at bin_reader)
             ~stop:(fun () -> Pipe.is_closed w)
-            ~f:(fun v -> Pipe.write_if_open w v))
+            ~f:(fun v -> Pipe.write_without_pushback_if_open w v)
+            ~pushback:(fun () -> Pipe.pushback w))
       in
       Ivar.fill_exn tail t)
   in
   pipe, Ivar.read tail
 ;;
+
+module For_testing = struct
+  let read_file_per_frame ?digest ?accept ?buf_len bin_reader path =
+    let tail = Ivar.create () in
+    let pipe =
+      Pipe.create_reader ~close_on_exception:true (fun w ->
+        let%map t, _ =
+          Reader.with_file ?buf_len path ~f:(fun reader ->
+            scan_file
+              ?digest
+              ?accept
+              ~path
+              reader
+              ~decode:(decode_with bin_reader)
+              ~stop:(fun () -> Pipe.is_closed w)
+              ~f:(fun v -> Pipe.write_if_open w v))
+        in
+        Ivar.fill_exn tail t)
+    in
+    pipe, Ivar.read tail
+  ;;
+end
 
 let load_file ?digest ?accept ?buf_len bin_reader path =
   let pipe, tail = read_file ?digest ?accept ?buf_len bin_reader path in

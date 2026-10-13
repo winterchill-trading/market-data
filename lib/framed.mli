@@ -59,6 +59,22 @@ val read_file
   -> string
   -> 'a Pipe.Reader.t * Tail.t Deferred.t
 
+(**/**)
+
+module For_testing : sig
+  (** The reader {!read_file} replaced (two deferreds per frame), kept to check that both
+      give the same values and tail. *)
+  val read_file_per_frame
+    :  ?digest:string
+    -> ?accept:string list
+    -> ?buf_len:int
+    -> 'a Bin_prot.Type_class.reader
+    -> string
+    -> 'a Pipe.Reader.t * Tail.t Deferred.t
+end
+
+(**/**)
+
 (** Length in bytes of the header and the complete frames at the start of [path]. *)
 val valid_length : string -> int Deferred.t
 
