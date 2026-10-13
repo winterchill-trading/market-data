@@ -132,3 +132,41 @@ let%expect_test "add after close raises" =
       |}];
     return ())
 ;;
+
+let%expect_test "a direct sink writes the same file and adds rows without the schema" =
+  let run ~direct =
+    Sample.with_temp_dir (fun dir ->
+      let time_source = Time_source.create ~now:before_midnight () in
+      let s =
+        Parquet_sink.create
+          ~time_source:(Time_source.read_only time_source)
+          ?direct
+          Parquet_schemas.trade
+          ~dir
+          Sample.btc
+          Trades
+          ~row_group_rows:64
+      in
+      let rows =
+        Array.init 1_000 ~f:(fun ms -> Sample.trade ~ms ~price:"100.5" ~size:"0.25" ())
+      in
+      Array.iter (Array.sub rows ~pos:0 ~len:500) ~f:(Parquet_sink.add s);
+      (* After the warm-up: what [add] itself costs per row on the caller's side. *)
+      let before = Gc.minor_words () in
+      Array.iter (Array.sub rows ~pos:500 ~len:500) ~f:(Parquet_sink.add s);
+      let words = Float.of_int (Gc.minor_words () - before) /. 500. in
+      let%map () = Parquet_sink.close s in
+      words, In_channel.read_all (List.hd_exn (Parquet_sink.files s)))
+  in
+  let%bind schema_words, schema_file = run ~direct:None in
+  let%map direct_words, direct_file = run ~direct:(Some Parquet_schemas.Direct.trade) in
+  printf
+    "same file: %b\nadd: %.1f words/row (schema sink %.1f)\n"
+    (String.equal schema_file direct_file)
+    direct_words
+    schema_words;
+  [%expect {|
+    same file: true
+    add: 3.1 words/row (schema sink 3.1)
+    |}]
+;;
