@@ -27,8 +27,8 @@ val path : _ t -> string
 val add : 'a t -> 'a list -> unit Deferred.t
 
 (** Runs [f] on the underlying writer in the writer thread, like {!add}: for callers that
-    append rows column by column with {!Parquet.Writer.Direct}. *)
-val write : 'a t -> f:('a Parquet.Writer.t -> unit) -> unit Deferred.t
+    append rows column by column with {!Parquet.Writer.Direct}, or look its columns up. *)
+val write : 'a t -> f:('a Parquet.Writer.t -> 'b) -> 'b Deferred.t
 
 val num_rows : _ t -> int
 
