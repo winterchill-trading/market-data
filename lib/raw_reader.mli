@@ -1,8 +1,9 @@
 (** Streams market-recorder raw minute files ({!Raw_minute}) of one venue and symbol over
     a time range, all streams merged by [recv_ts].
 
-    Memory is bounded: each stream holds at most one decompressed minute file, and the
-    next one is read only once the consumer has taken every line of the previous one. *)
+    Memory is bounded: each stream holds at most one minute file's items plus one merge
+    batch ({!Merge.sorted}), and the next file is read only once the merge has taken every
+    line of the previous one. *)
 
 open! Core
 module Md_stream := Stream
