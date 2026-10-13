@@ -100,41 +100,89 @@ let%expect_test "crash safety: reopening repairs the tail before appending" =
     [%expect {| ((payloads (payload-1 payload-2 after-restart)) (tail Clean)) |}])
 ;;
 
+(* Deterministic on purpose. An earlier version slept 200ms on the wall clock and checked
+   that the file did not exist right after a write crossing [flush_bytes]; that size flush
+   is started inside [write], so on a fast Linux runner the file could already exist when
+   the check ran. Now the interval timer runs on a synthetic time source, each trigger is
+   observed through [buffered_bytes] (which drops to 0 the moment a flush takes the
+   buffer), and [flush] on an empty buffer only waits for that in-flight write. *)
 let%expect_test "flush policy: by time and by size" =
   Sample.with_temp_dir (fun dir ->
     let ms = Time_ns.Span.of_int_ms in
-    let size_after ~flush_interval ~flush_bytes payload =
-      let path = Frame_log.path ~dir Sample.btc L2 (Date.of_string "2026-01-01") in
-      let%bind () = Process.run_expect_no_stdout_exn ~prog:"rm" ~args:[ "-f"; path ] () in
-      let w = Frame_log.Writer.create ~flush_interval ~flush_bytes ~dir Sample.btc L2 in
-      Frame_log.Writer.write w ~recv_ts:(Sample.ts 0) ~stream_id:0 payload;
-      let%bind immediately = Sys.file_exists_exn path in
-      let%bind () = Clock_ns.after (ms 200) in
-      let%bind later =
-        match%map Monitor.try_with (fun () -> file_size path) with
-        | Ok n -> Int.to_string n
-        | Error _ -> "missing"
+    let path = Frame_log.path ~dir Sample.btc L2 (Date.of_string "2026-01-01") in
+    let on_disk () =
+      match%map Monitor.try_with (fun () -> file_size path) with
+      | Ok n -> Int.to_string n
+      | Error _ -> "missing"
+    in
+    let start ~flush_interval ~flush_bytes payload =
+      let%map () = Process.run_expect_no_stdout_exn ~prog:"rm" ~args:[ "-f"; path ] () in
+      let time_source = Time_source.create ~now:(Sample.ts 0) () in
+      let w =
+        Frame_log.Writer.create
+          ~flush_interval
+          ~flush_bytes
+          ~time_source:(Time_source.read_only time_source)
+          ~dir
+          Sample.btc
+          L2
       in
-      let%map () = Frame_log.Writer.close w in
-      print_s [%message (immediately : bool) (later : string)]
+      Frame_log.Writer.write w ~recv_ts:(Sample.ts 0) ~stream_id:0 payload;
+      print_s [%message "written" ~buffered:(Frame_log.Writer.buffered_bytes w : int)];
+      time_source, w
+    in
+    let advance time_source w span =
+      let%map () = Time_source.advance_by_alarms_by time_source span in
+      print_s
+        [%message
+          "advanced"
+            (span : Time_ns.Span.t)
+            ~buffered:(Frame_log.Writer.buffered_bytes w : int)]
+    in
+    let flushed w =
+      let%bind () = Frame_log.Writer.flush w in
+      let%bind file = on_disk () in
+      print_s [%message (file : string)];
+      Frame_log.Writer.close w
     in
     (* timer flush: tiny record, large size threshold, 50ms interval *)
-    let%bind () = size_after ~flush_interval:(ms 50) ~flush_bytes:1_000_000 "small" in
-    (* size flush: interval far away, record over the threshold *)
-    let%bind () =
-      size_after ~flush_interval:Time_ns.Span.hour ~flush_bytes:100 (String.make 100 'x')
-    in
-    (* neither: nothing reaches the file before close *)
-    let%bind () =
-      size_after ~flush_interval:Time_ns.Span.hour ~flush_bytes:1_000_000 "small"
-    in
+    let%bind ts, w = start ~flush_interval:(ms 50) ~flush_bytes:1_000_000 "small" in
+    let%bind () = advance ts w (ms 49) in
+    let%bind () = advance ts w (ms 1) in
+    let%bind () = flushed w in
     [%expect
       {|
-      ((immediately false) (later 24))
-      ((immediately false) (later 119))
-      ((immediately false) (later missing))
+      (written (buffered 24))
+      (advanced (span 49ms) (buffered 24))
+      (advanced (span 1ms) (buffered 0))
+      (file 24)
       |}];
-    return ())
+    (* size flush: interval far away, record over the threshold *)
+    let%bind _, w =
+      start ~flush_interval:Time_ns.Span.hour ~flush_bytes:100 (String.make 100 'x')
+    in
+    let%bind () = flushed w in
+    [%expect {|
+      (written (buffered 0))
+      (file 119)
+      |}];
+    (* neither: nothing reaches the file before close *)
+    let%bind ts, w =
+      start ~flush_interval:Time_ns.Span.hour ~flush_bytes:1_000_000 "small"
+    in
+    let%bind () = advance ts w (Time_ns.Span.of_min 59.) in
+    let%bind file = on_disk () in
+    print_s [%message (file : string)];
+    let%bind () = Frame_log.Writer.close w in
+    let%map file = on_disk () in
+    print_s [%message "closed" (file : string)];
+    [%expect
+      {|
+      (written (buffered 24))
+      (advanced (span 59m) (buffered 24))
+      (file missing)
+      (closed (file 24))
+      |}])
 ;;
 
 let%expect_test "merged read across streams orders by recv_ts" =
