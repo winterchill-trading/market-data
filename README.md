@@ -220,6 +220,43 @@ There are two ways to fill `parquet/`:
   The manifest code version changed with the default (`day-close-2`), so the
   next run rewrites every table once; another `-row-group` needs `-force`.
 
+  Rows are written through `Parquet_schemas.Direct`, one `Parquet.Writer.Direct`
+  call per column instead of a schema accessor closure per cell: prices and
+  sizes go in as their fixed-decimal units, timestamps as nanoseconds, the
+  funding rate through `add_float_u`, and L2 updates are flattened into the
+  writer without building an `L2_row.t` per level. Every table writes 0 minor
+  words per row once the column buffers have grown (pinned in
+  `test/test_parquet_direct.ml`), and the files are byte-identical to the
+  schema path (`test/test_day_close_direct.ml` rebuilds every table both ways).
+  `Parquet_sink.create ~direct:Parquet_schemas.Direct.trade` does the same for
+  a live sink; its `add` costs 3 words per row (the buffer's list cell).
+
+  Most of a day close is reading the event log, not writing Parquet.
+  `Framed.read_file` now decodes frames straight out of the reader's buffer, a
+  chunk at a time, instead of two deferreds and a pipe write with pushback per
+  frame: reading an event log went from 268 to 35 minor words per event (34 for
+  a trade, pinned in `test/test_event_log.ml`). A quickcheck test checks it
+  against the old reader on truncated and corrupted files; the one difference
+  is a size header with its top bit set, which the old reader raised on and the
+  new one reports as `Corrupt`.
+
+  `dune exec bench/day_close_bench.exe` writes a synthetic day for one
+  instrument (1M trades, 1M bbo, 100k L2 updates of 5 levels a side, 1,440
+  funding updates) and runs `Day_close.run ~force:true` on it, without
+  compression unless `-zstd`. arm64 laptop under load, best of 3 to 6,
+  interleaved with the previous binary; CI (amd64) is not measured. The
+  `Direct` writers alone are within noise on the whole run and show on the
+  `l2` table, the one that is mostly writing:
+
+  | 3M rows, no compression | before | after |
+  | --- | --- | --- |
+  | dev | 1.07 M rows/s, 334 words/row | 2.55 M rows/s, 27 words/row |
+  | release | 1.07 M rows/s | 2.88 M rows/s |
+  | release `-O3` | 1.06 M rows/s | 2.98 M rows/s |
+  | reading the event logs alone, release | 1.63 M events/s | 6.5 M events/s |
+  | `l2` table alone (1M rows), release | 3.56 M rows/s | 4.24 M rows/s |
+  | release, `-zstd` | 1.04 M rows/s | 2.71 M rows/s |
+
 Files are written as `<name>.tmp` and renamed when complete, so readers
 globbing `*.parquet` never see a partial file.
 
