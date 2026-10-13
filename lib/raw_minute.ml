@@ -98,6 +98,15 @@ module Fast_ts = struct
   ;;
 end
 
+(* The index of the first [c] in [s.[pos .. stop)], or [stop]. *)
+let index_before s ~pos ~stop c =
+  let mutable i = pos in
+  while i < stop && Char.( <> ) (String.unsafe_get s i) c do
+    i <- i + 1
+  done;
+  i
+;;
+
 module Line = struct
   type t =
     | Frame of
@@ -131,17 +140,16 @@ module Line = struct
     if len = 0
     then Ok Disconnect
     else (
-      match String.index_from s pos ' ' with
-      | Some sp when sp < pos + len ->
-        (match parse_ts s ~pos ~sp with
-         | Ok recv_ts ->
-           Ok
-             (Frame
-                { recv_ts
-                ; payload = String.sub s ~pos:(sp + 1) ~len:(pos + len - sp - 1)
-                })
-         | Error _ as e -> e)
-      | _ -> no_space s ~pos ~len)
+      let stop = pos + len in
+      let sp = index_before s ~pos ~stop ' ' in
+      if sp = stop
+      then no_space s ~pos ~len
+      else (
+        match parse_ts s ~pos ~sp with
+        | Ok recv_ts ->
+          Ok
+            (Frame { recv_ts; payload = String.sub s ~pos:(sp + 1) ~len:(stop - sp - 1) })
+        | Error _ as e -> e))
   ;;
 
   let parse line = parse_sub line ~pos:0 ~len:(String.length line)
@@ -217,15 +225,6 @@ let decompress data =
 let read_text_blocking path =
   let data = In_channel.read_all path in
   if String.is_suffix path ~suffix:".zst" then decompress data else data
-;;
-
-(* The index of the first [c] in [s.[pos .. stop)], or [stop]. *)
-let index_before s ~pos ~stop c =
-  let mutable i = pos in
-  while i < stop && Char.( <> ) (String.unsafe_get s i) c do
-    i <- i + 1
-  done;
-  i
 ;;
 
 let iter_lines text ~f =
