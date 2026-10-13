@@ -159,3 +159,28 @@ let%expect_test "files without a header still read" =
     [%expect {| ((events 7) (tail Clean)) |}];
     return ())
 ;;
+
+let%expect_test "minor words per event read" =
+  Sample.with_temp_dir (fun dir ->
+    let n = 20_000 in
+    let w = Event_log.Writer.create ~dir () in
+    for ms = 0 to n - 1 do
+      Event_log.Writer.append
+        w
+        (Trade (Sample.trade ~id:"12345678" ~ms ~price:"100.25" ~size:"0.5" ()))
+    done;
+    let%bind () = Event_log.Writer.close w in
+    let path = Event_log.path ~dir Sample.btc Trades (Date.of_string "2026-01-01") in
+    let before = Gc.minor_words () in
+    let events, tail = Event_log.read_file path in
+    let%bind count = Pipe.fold_without_pushback events ~init:0 ~f:(fun n _ -> n + 1) in
+    let%map tail in
+    (* Most of it is the decoded event itself (records, symbol and trade id strings). The
+       per-frame reader this replaced, with two deferreds per frame, took about 270. *)
+    printf
+      "%d events, %s, %.0f minor words per event\n"
+      count
+      (Sexp.to_string [%sexp (tail : Framed.Tail.t)])
+      (Float.of_int (Gc.minor_words () - before) /. Float.of_int count);
+    [%expect {| 20000 events, Clean, 34 minor words per event |}])
+;;
