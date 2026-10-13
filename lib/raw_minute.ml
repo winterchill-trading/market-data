@@ -219,15 +219,20 @@ let read_text_blocking path =
   if String.is_suffix path ~suffix:".zst" then decompress data else data
 ;;
 
+(* The index of the first [c] in [s.[pos .. stop)], or [stop]. *)
+let index_before s ~pos ~stop c =
+  let mutable i = pos in
+  while i < stop && Char.( <> ) (String.unsafe_get s i) c do
+    i <- i + 1
+  done;
+  i
+;;
+
 let iter_lines text ~f =
   let n = String.length text in
   let mutable pos = 0 in
   while pos < n do
-    let eol =
-      match String.index_from text pos '\n' with
-      | Some i -> i
-      | None -> n
-    in
+    let eol = index_before text ~pos ~stop:n '\n' in
     f ~pos ~len:(eol - pos);
     pos <- eol + 1
   done
@@ -238,19 +243,22 @@ let iter_text text ~frame ~disconnect ~error =
     if len = 0
     then disconnect ()
     else (
-      let sp = String.index_from text pos ' ' in
-      match sp with
-      | Some sp when sp < pos + len ->
-        (match Line.parse_ts text ~pos ~sp with
-         | Ok recv_ts ->
-           frame
-             ~recv_ts
-             ~payload:(String.sub text ~pos:(sp + 1) ~len:(pos + len - sp - 1))
-         | Error e -> error e)
-      | _ ->
-        (match Line.no_space text ~pos ~len with
-         | Error e -> error e
-         | Ok _ -> assert false)))
+      let stop = pos + len in
+      let sp = index_before text ~pos ~stop ' ' in
+      if sp = stop
+      then (
+        match Line.no_space text ~pos ~len with
+        | Error e -> error e
+        | Ok _ -> assert false)
+      else (
+        let payload () = String.sub text ~pos:(sp + 1) ~len:(stop - sp - 1) in
+        let ns = Fast_ts.parse text ~pos ~len:(sp - pos) in
+        if ns <> Fast_ts.not_fast
+        then frame ~recv_ts:(Time_ns.of_int_ns_since_epoch ns) ~payload:(payload ())
+        else (
+          match Line.parse_ts_slow text ~pos ~len:(sp - pos) with
+          | Ok recv_ts -> frame ~recv_ts ~payload:(payload ())
+          | Error e -> error e))))
 ;;
 
 let read_lines_blocking path =
