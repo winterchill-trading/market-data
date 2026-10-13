@@ -25,6 +25,8 @@ type 'a t =
   ; mutable buffer_count : int
   ; mutable buffer_date : Date.t option (** day of the rows in [buffer] *)
   ; mutable day : Date.t option (** day of the last row added *)
+  ; mutable day_start : Time_ns.t (** UTC midnight starting [day] *)
+  ; mutable day_end : Time_ns.t (** UTC midnight ending [day] *)
   ; mutable pending : int
   ; mutable dropped : int
   ; mutable closed : bool
@@ -120,6 +122,8 @@ let create
     ; buffer_count = 0
     ; buffer_date = None
     ; day = None
+    ; day_start = Time_ns.max_value_representable
+    ; day_end = Time_ns.min_value_representable
     ; pending = 0
     ; dropped = 0
     ; closed = false
@@ -149,14 +153,22 @@ let hand_over t =
 
 let add t row =
   if t.closed then raise_s [%message "Parquet_sink.add: closed"];
-  let date = Store.date_of_time (Time_source.now t.time_source) in
-  (match t.day with
-   | Some d when not (Date.equal d date) ->
-     hand_over t;
-     Pipe.write_without_pushback t.batches End_of_day
-   | _ -> ());
-  t.day <- Some date;
-  t.buffer_date <- Some date;
+  let now = Time_source.now t.time_source in
+  (* [Time_ns.to_date] and a fresh [Some date] cost about 2 words per row; the day only
+     changes at midnight, so the date is recomputed only outside the current one. *)
+  if Time_ns.( < ) now t.day_start || Time_ns.( >= ) now t.day_end
+  then (
+    let date = Store.date_of_time now in
+    (match t.day with
+     | Some d when not (Date.equal d date) ->
+       hand_over t;
+       Pipe.write_without_pushback t.batches End_of_day
+     | _ -> ());
+    t.day <- Some date;
+    t.day_start
+    <- Time_ns.of_date_ofday ~zone:Time_float.Zone.utc date Time_ns.Ofday.start_of_day;
+    t.day_end <- Time_ns.add t.day_start Time_ns.Span.day);
+  t.buffer_date <- t.day;
   t.buffer <- row :: t.buffer;
   t.buffer_count <- t.buffer_count + 1;
   if t.buffer_count >= t.row_group_rows then hand_over t
