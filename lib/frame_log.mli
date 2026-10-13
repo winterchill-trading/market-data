@@ -38,6 +38,7 @@ module Writer : sig
   val create
     :  ?flush_interval:Time_ns.Span.t
     -> ?flush_bytes:int
+    -> ?time_source:Async.Time_source.t
     -> dir:string
     -> Instrument.t
     -> Stream.t
@@ -48,6 +49,10 @@ module Writer : sig
 
   val write : t -> recv_ts:Time_ns.t -> stream_id:int -> string -> unit
   val flush : t -> unit Async.Deferred.t
+
+  (** Bytes appended but not yet handed to a flush. *)
+  val buffered_bytes : t -> int
+
   val close : t -> unit Async.Deferred.t
 
   (** Files opened so far, in order. *)

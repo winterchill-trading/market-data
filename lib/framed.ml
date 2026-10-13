@@ -355,6 +355,7 @@ module Writer = struct
   let create
     ?(flush_interval = Time_ns.Span.of_int_ms 100)
     ?(flush_bytes = 1024 * 1024)
+    ?(time_source = Time_source.wall_clock ())
     ?digest
     ?(accept = [])
     bin_writer
@@ -380,8 +381,9 @@ module Writer = struct
       ; stop = Ivar.create ()
       }
     in
-    Clock_ns.every
-      ~start:(Clock_ns.after flush_interval)
+    Time_source.every
+      time_source
+      ~start:(Time_source.after time_source flush_interval)
       ~stop:(Ivar.read t.stop)
       ~continue_on_error:false
       flush_interval
@@ -414,6 +416,7 @@ module Writer = struct
   ;;
 
   let flush t = flush_buffer t
+  let buffered_bytes t = Bigbuffer.length t.buffer
 
   let close t =
     if t.closed

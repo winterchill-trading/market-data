@@ -95,7 +95,8 @@ val load_file
     [flush_interval] (default 100ms), when the buffer reaches [flush_bytes] (default 1
     MiB), on {!flush}, and on {!close}. Files are opened in append mode, so restarting a
     writer on the same day continues the existing file, after cutting off any damaged tail
-    a crash left behind.
+    a crash left behind. The interval timer runs on [time_source] (default the wall
+    clock); tests pass a synthetic one to decide when it fires.
 
     With [digest], every new file starts with a {!File_header}, and appending to an
     existing file whose header names another digest, not listed in [accept], raises. *)
@@ -105,6 +106,7 @@ module Writer : sig
   val create
     :  ?flush_interval:Time_ns.Span.t
     -> ?flush_bytes:int
+    -> ?time_source:Time_source.t
     -> ?digest:string
     -> ?accept:string list
     -> 'a Bin_prot.Type_class.writer
@@ -117,6 +119,9 @@ module Writer : sig
 
   (** Becomes determined once everything appended so far is handed to the OS. *)
   val flush : _ t -> unit Deferred.t
+
+  (** Bytes appended but not yet handed to a flush. *)
+  val buffered_bytes : _ t -> int
 
   (** Flushes and closes the current file. Idempotent. *)
   val close : _ t -> unit Deferred.t

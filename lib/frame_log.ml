@@ -22,10 +22,11 @@ let path ~dir instrument stream date =
 module Writer = struct
   type t = Record.t Framed.Writer.t
 
-  let create ?flush_interval ?flush_bytes ~dir instrument stream =
+  let create ?flush_interval ?flush_bytes ?time_source ~dir instrument stream =
     Framed.Writer.create
       ?flush_interval
       ?flush_bytes
+      ?time_source
       Record.bin_writer_t
       ~path_for_date:(path ~dir instrument stream)
       ()
@@ -38,6 +39,7 @@ module Writer = struct
   ;;
 
   let flush = Framed.Writer.flush
+  let buffered_bytes = Framed.Writer.buffered_bytes
   let close = Framed.Writer.close
   let files = Framed.Writer.files
 end
