@@ -1,8 +1,7 @@
 # bench: market-data benchmarks
 
 `day_close_bench.ml` and `raw_reader_bench.ml` measure day close and the raw minute reader. The
-reader figure in the README (about 2.7 M lines/s at 39 words per line) is from one core on an
-arm64 Mac.
+reader figure in the README (about 2.7 M lines/s at 39 words per line) is quoted there with its setup.
 
 Rules:
 
