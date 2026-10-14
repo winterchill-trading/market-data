@@ -27,11 +27,11 @@ val of_items
   -> Feed.With_gaps.t
 
 (** Replays the recorder's raw minute files of [symbol] on [normalizer]'s venue with
-    [recv_ts] in [[start, stop)] ({!Raw_reader.read}), turning frames into events with
-    [normalizer] (one state per stream). Each empty raw line resets that stream's
-    normalizer and is reported as a {!Gap.Reason.Disconnect} gap for the stream. Frames
-    the normalizer rejects and unreadable lines go to [on_error] (default: logged) and
-    are skipped. *)
+    [recv_ts] in the half-open interval from [start] (inclusive) to [stop] (exclusive)
+    ({!Raw_reader.read}), turning frames into events with [normalizer] (one state per
+    stream). Each empty raw line resets that stream's normalizer and is reported as a
+    {!Gap.Reason.Disconnect} gap for the stream. Frames the normalizer rejects and
+    unreadable lines go to [on_error] (default: logged) and are skipped. *)
 val of_raw
   :  ?speed:float
   -> ?time_source:Time_source.t
