@@ -140,6 +140,12 @@ holds `recv_ts` for such rows.
 | `Normalizer` | `Normalizer.S`, the raw-frame-to-events interface a feed library implements |
 | `Rebuild_norm` | rebuilds a day of `norm/` from raw minute files with the given normalizers; `command` for binaries that link them |
 | `Query_log` | ndjson audit log of SQL run through `query` |
+| `Bars` | information-driven bars from trades: tick, volume, dollar, and tick/volume/dollar imbalance and run bars with adaptive thresholds |
+| `Directional_change`, `Cusum_filter` | event clocks: directional-change events at a threshold theta (turning point, confirmation, overshoot) and a symmetric CUSUM filter on log returns |
+| `Labels` | triple-barrier labels (profit-take, stop, vertical barrier) with optional meta-labels, and EWMA volatility for barrier widths |
+| `Toxicity` | VPIN over equal-volume buckets (aggressor side, tick rule or bulk volume classification), per-bucket signed imbalance and dominant side, rolling z-score and percentile |
+| `Toxicity_feed` | `Toxicity` over a `Feed.t`'s trades: a pipe of bucket events for every instrument |
+| `Feature_schemas`, `Features` | Parquet schemas of the `bars` and `toxicity` tables; `Features.run` and the `features` subcommand build them from a day of `norm/` trades |
 
 Writers buffer frames and flush every 100 ms, at 1 MiB, on `flush` and on
 `close` (both configurable).
@@ -403,6 +409,80 @@ so a replay can begin mid-day without reading from midnight. Snapshots are
 written only by an `Event_log.Writer` created with `~snapshot_interval`
 (e.g. one minute); the entry at `at` holds every L2 update received before
 `at`.
+
+### Bars, labels and toxicity
+
+```
+market-data features -dir /data/md -date 2026-01-01                 # default bars, VPIN at 50 buckets a day
+market-data features -dir /data/md -date 2026-01-01 \
+  -bars tick:500 -bars dollar:1000000 -bars volume-imbalance:200 \
+  -bucket 25 -window 50 -classification bulk-1m
+```
+
+`features` folds each instrument's trades of the day (`norm/trades/<date>.bin`)
+into two tables beside the day-close ones:
+
+| Table | One row per | Columns |
+| --- | --- | --- |
+| `parquet/bars/<date>.parquet` | bar (every requested kind in one file) | `venue`, `symbol`, `bar_type` (`tick-500`, `volume-imbalance-200`, ...), `complete` (false for the day's partial last bar), `first_ts`, `last_ts`, `open`, `high`, `low`, `close`, `volume`, `buy_volume`, `notional` (double), `trade_count`, `threshold` (double) |
+| `parquet/toxicity/<date>.parquet` | filled volume bucket | `venue`, `symbol`, `bucket`, `start_ts`, `end_ts`, `buy_volume`, `sell_volume`, `imbalance` (signed), `dominant` (`buy`, `sell` or null), `vpin`, `buckets`, `zscore`, `cdf` (null when undefined) |
+
+They are not part of `day-close`, `views` or `catalog`; read them with
+`read_parquet('<root>/*/*/parquet/bars/*.parquet')`. The bucket size is fixed
+(`-bucket SIZE`) or the day's volume over `-buckets-per-day` (50).
+
+Bar kinds, after the sampling literature on event-time bars:
+
+- `tick:N`, `volume:SIZE`, `dollar:X` close once the bar holds N trades, that
+  much size, or that much value. A trade is never split, so bars plus the
+  partial one hold every trade exactly once (a property test and a DuckDB
+  recomputation check this).
+- `<measure>-imbalance:N` closes when the signed flow (taker side times 1,
+  size or value) reaches the expected bar length times the expected signed flow
+  per trade; `<measure>-run:N` when the larger one-sided sum reaches the
+  expected length times the larger expected one-sided flow. N is the warm-up
+  bar's length; the expectations are exponentially weighted over 20 bars and
+  the expected length is kept within N/10 and 10 N, since on balanced flow the
+  imbalance threshold otherwise collapses to one trade per bar.
+
+`Directional_change` and `Cusum_filter` are event clocks over any price
+series (`add ~time price`, or `add_trade`): the first emits an event at every
+reversal of theta from the last extreme, with the turning point and the
+overshoot of the trend that ended; the second fires when the cumulative log
+return since its last event passes a threshold in either direction.
+`Labels.label` marks each event with the first of three barriers its price
+path touches: profit-take and stop at multiples of a width (typically
+`Labels.ewma_volatility`), and a holding period. With a side per event (a
+primary model's bet) the label becomes a meta-label, 1 when the bet made money.
+
+`Toxicity` computes the volume-synchronised probability of informed trading:
+equal-volume buckets, buy and sell volume per bucket from the venue's taker
+side (`aggressor`, the default: the crypto venues report it), the tick rule
+(`tick-rule`), or bulk volume classification over time bars (`bulk-1m`: a
+bar's volume is bought in the share `Phi(dP / sigma)`). VPIN is the mean
+absolute order imbalance over the last `-window` buckets; `zscore` and `cdf`
+place it among the previous `-zscore-window` values. VPIN warns of adverse
+selection and volatility, not of direction; the signed `imbalance` and
+`dominant` side say where the flow came from. `Toxicity_feed.of_feed` runs it
+over a live or replayed feed; mm-core's `Toxicity_gate` takes the result as its
+signal.
+
+`bench/features_bench.exe` (core_bench, one fold step per run, M-series Mac,
+dev profile; the 3 words are core_bench's own overhead, the expect tests pin 0
+words for a trade that closes nothing):
+
+| Case | Time/run | Minor words/run |
+| --- | ---: | ---: |
+| `Bars.add` tick-1000 | 19.9 ns | 3.0 |
+| `Bars.add` volume-50 | 21.0 ns | 3.1 |
+| `Bars.add` dollar-5000000 | 20.4 ns | 3.1 |
+| `Bars.add` dollar-imbalance-100 | 22.3 ns | 4.6 |
+| `Bars.add` volume-run-100 | 24.4 ns | 4.6 |
+| `Directional_change.add_trade` | 10.2 ns | 3.0 |
+| `Cusum_filter.add_trade` | 14.9 ns | 3.0 |
+| `Toxicity.add` aggressor | 14.4 ns | 3.2 |
+| `Toxicity.add` tick-rule | 17.3 ns | 3.2 |
+| `Toxicity.add` bulk-1m | 10.5 ns | 3.2 |
 
 ### Reading raw files
 
