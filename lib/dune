@@ -1,7 +1,15 @@
 (library
  (name market_data)
  (public_name market-data)
- (libraries core async bin_prot fixed-decimal exchange-core parquet zstd)
+ (libraries
+  core
+  async
+  bin_prot
+  fixed-decimal
+  exchange-core
+  parquet
+  stdlib_upstream_compatible
+  zstd)
  (preprocess
   (pps ppx_jane)))
 
