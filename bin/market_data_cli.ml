@@ -295,6 +295,7 @@ let () =
     ; "check", check
     ; "catalog", catalog
     ; "rebuild-norm", Rebuild_norm.command []
+    ; "features", Features.command
     ]
   |> Command_unix.run
 ;;
