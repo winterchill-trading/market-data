@@ -19,6 +19,7 @@ depends: [
   "parquet"
   "zstd"
   "ppx_jane"
+  "core_bench" {with-test}
   "odoc" {with-doc}
 ]
 build: [

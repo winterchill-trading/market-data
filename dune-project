@@ -29,4 +29,5 @@
   exchange-core
   parquet
   zstd
-  ppx_jane))
+  ppx_jane
+  (core_bench :with-test)))

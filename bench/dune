@@ -1,5 +1,13 @@
 (executables
  (names raw_reader_bench day_close_bench)
+ (modules raw_reader_bench day_close_bench)
  (libraries core core_unix core_unix.command_unix async market-data zstd)
+ (preprocess
+  (pps ppx_jane)))
+
+(executable
+ (name features_bench)
+ (modules features_bench)
+ (libraries core core_unix.command_unix core_bench market-data)
  (preprocess
   (pps ppx_jane)))
