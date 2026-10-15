@@ -11,9 +11,9 @@ derived analytical layer.
 
 | Path | Holds |
 | --- | --- |
-| `lib/` | Library `market-data` (module `Market_data`): venues, records, framing, event and raw logs, Parquet, day close, feeds, replay |
-| `bin/` | The `market-data` CLI: `day-close`, `views`, `query`, `dump`, `check`, `catalog`, `rebuild-norm` |
-| `bench/` | Benchmarks for day close and the raw reader |
+| `lib/` | Library `market-data` (module `Market_data`): venues, records, framing, event and raw logs, Parquet, day close, feeds, replay; features (`Bars`, `Directional_change`, `Cusum_filter`, `Labels`, `Toxicity`, `Toxicity_feed`, `Features`) |
+| `bin/` | The `market-data` CLI: `day-close`, `views`, `query`, `dump`, `check`, `catalog`, `rebuild-norm`, `features` |
+| `bench/` | Benchmarks for day close and the raw reader; `features_bench` (core_bench) for the per-trade feature folds |
 | `test/` | Expect tests, cram test of `day-close`, pinned event-log fixtures |
 | `scripts/` | `daycheck-diff.sh`, `pyarrow-check.sh` |
 | `queries/` | `lead_lag.sql`, DuckDB queries kept as files |
@@ -46,6 +46,12 @@ the published dependencies, then run `dune build` here.
   `../specs/adr/`). Adding a `Venue` constructor changes the digest: add the old digest to that list
   first, in the same commit.
 - Manifests live under `_manifest/` (pyarrow skips `_`-prefixed names).
+- The per-trade folds (`Bars`, `Directional_change`, `Cusum_filter`, `Toxicity`) keep their
+  state in records with unboxed float fields written in place and return `or_null` or `[]`;
+  expect tests pin 0 words for a trade that closes nothing. Keep it that way: no option,
+  tuple or boxed float on that path.
+- The `bars` and `toxicity` tables are not `Parquet_kind`s on purpose: adding a kind would
+  make `day-close`, `views` and `catalog` expect them for every instrument.
 - Comments for humans at pinned numbers and at workarounds, including DuckDB's decimal overflow.
 
 ## Dependencies
@@ -72,6 +78,10 @@ check `examples/query.py` against pyarrow. The `obj-magic` job calls the reusabl
 - `TIMESTAMP(NANOS, isAdjustedToUTC=true)` makes DuckDB drop nanoseconds; use `isAdjustedToUTC=false`.
 - A library module that opens Async cannot refer to its own `Stream` module; alias it before the open.
 - Under `open! Async`, `Sys` is shadowed; use `Core.Sys.get_argv`.
+- Core's `List.init` calls its function from the last index down; a test tape built with a
+  stateful generator inside it comes out reversed. Use a loop.
+- `xs @ f t` evaluates `f t` first; with a stateful `f` (`Toxicity.flush`) bind the left
+  side first.
 - A sibling dependency added here must be pinned in every consumer's CI, or each fails with
   "unknown package".
 
